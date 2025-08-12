@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- PWA Meta Tags -->
+    <title>任务隧道视野</title>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#f8fafc">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon-192x192.png">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .view { display: none; }
+        .view.active { display: flex; flex-direction: column; }
+        .sortable-ghost { background: #e0e7ff; opacity: 0.5; border-radius: 0.5rem; }
+        .drag-handle { cursor: move; }
+        .progress-segment { transition: background-color 0.5s ease, flex-grow 0.5s ease; }
+        .fade-in { animation: fadeIn 0.5s ease forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .task-card { 
+            cursor: grab; 
+            position: relative; 
+            overflow: hidden;
+            -webkit-user-select: none; /* Safari */
+            -ms-user-select: none; /* IE 10+ */
+            user-select: none; /* Standard */
+        }
+        .task-card:active { cursor: grabbing; }
+        .edit-overlay {
+            position: absolute;
+            inset: 0;
+            background-color: rgba(0,0,0,0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+        }
+        .edit-overlay.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen">
+
+    <div id="app-container" class="w-full max-w-sm h-[85vh] max-h-[800px] mx-auto bg-white rounded-3xl shadow-lg p-5 flex flex-col">
+
+        <!-- ===== 界面 1: 任务仪表盘 (Dashboard) ===== -->
+        <div id="view-dashboard" class="view active h-full">
+            <header class="flex justify-between items-center mb-6">
+                <h1 class="text-2xl font-bold text-slate-800">选择一个任务开始吧</h1>
+                <button id="btn-new-task" class="bg-slate-800 text-white rounded-full w-10 h-10 text-2xl font-semibold flex items-center justify-center hover:bg-slate-700 transition-colors shrink-0">+</button>
+            </header>
+            <div id="task-list-container" class="grid grid-cols-2 gap-4 flex-grow overflow-y-auto">
+                <!-- 任务卡片会动态添加到这里 -->
+            </div>
+        </div>
+
+        <!-- ===== 界面 2: 任务编辑器 (Editor) ===== -->
+        <div id="view-editor" class="view h-full">
+            <header class="flex justify-between items-center mb-4">
+                <button id="btn-editor-back" class="text-slate-500 hover:text-slate-800">&larr; 返回</button>
+                <h2 id="editor-title" class="text-xl font-bold text-slate-800">新建任务</h2>
+                <button id="btn-save-task" class="bg-green-500 text-white px-4 py-1.5 rounded-full font-semibold hover:bg-green-600">完成</button>
+            </header>
+            <input type="text" id="editor-task-name" placeholder="为任务命名" class="w-full p-3 mb-4 border-2 border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+            <div id="editor-subtask-list" class="space-y-2 flex-grow overflow-y-auto bg-slate-50 p-2 rounded-lg">
+                <!-- 子任务项会动态添加到这里 -->
+            </div>
+            <form id="form-add-subtask" class="flex items-center gap-2 mt-4">
+                <input type="text" id="editor-subtask-input" placeholder="添加步骤..." class="flex-grow p-3 border-2 border-slate-200 rounded-lg">
+                <button type="submit" class="bg-slate-800 text-white rounded-full w-10 h-10 text-2xl flex items-center justify-center shrink-0">+</button>
+            </form>
+        </div>
+
+        <!-- ===== 界面 3 & 4: 专注与完成 (Focus & Done) ===== -->
+        <div id="view-focus" class="view h-full justify-between">
+            <header class="flex justify-start">
+                 <button id="btn-focus-exit" class="text-slate-400 hover:text-slate-600">&larr; 退出</button>
+            </header>
+            <div class="flex-grow flex items-center justify-center">
+                <p id="focus-subtask-text" class="text-4xl font-bold text-center text-slate-800 break-words fade-in"></p>
+            </div>
+            <div class="w-full">
+                <div class="flex justify-center items-center mb-6">
+                    <button id="btn-focus-next" class="bg-white rounded-full w-20 h-20 flex items-center justify-center shadow-lg border-4 border-slate-800 transition-transform hover:scale-105">
+                        <!-- SVG Icon will be injected here -->
+                    </button>
+                </div>
+                <div id="focus-progress-bar" class="w-full h-4 flex items-stretch gap-2">
+                    <!-- 进度方块会动态添加到这里 -->
+                </div>
+            </div>
+        </div>
+        
+        <!-- ===== 全部完成界面 ===== -->
+        <div id="view-all-done" class="view h-full justify-center items-center text-center">
+            <h1 class="text-5xl font-black text-green-500 mb-4">太棒了！</h1>
+            <p id="all-done-main-task" class="text-2xl text-slate-600 mb-8"></p>
+            <p class="text-lg text-slate-500 mb-12">你已经成功完成了所有步骤！为你自己喝彩！</p>
+            <button id="btn-back-to-dash" class="bg-indigo-500 text-white px-8 py-4 rounded-lg font-bold text-lg hover:bg-indigo-600">返回主页</button>
+        </div>
+    </div>
+
+    <script type="module">
+        // --- State ---
+        let tasks = []; 
+        let currentTask = null; 
+        let currentFocusIndex = 0;
+        let editorSubtasks = []; 
+        let longPressTimer;
+        let isLongPress = false;
+        let isDragging = false;
+
+        const ICONS = {
+            NEXT: `<svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>`,
+            DONE: `<svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>`
+        };
+
+        // --- DOM Elements ---
+        const views = document.querySelectorAll('.view');
+        const taskListContainer = document.getElementById('task-list-container');
+        const btnNewTask = document.getElementById('btn-new-task');
+        const editorTitle = document.getElementById('editor-title');
+        const editorTaskName = document.getElementById('editor-task-name');
+        const editorSubtaskList = document.getElementById('editor-subtask-list');
+        const formAddSubtask = document.getElementById('form-add-subtask');
+        const editorSubtaskInput = document.getElementById('editor-subtask-input');
+        const btnSaveTask = document.getElementById('btn-save-task');
+        const btnEditorBack = document.getElementById('btn-editor-back');
+        const focusSubtaskText = document.getElementById('focus-subtask-text');
+        const btnFocusNext = document.getElementById('btn-focus-next');
+        const focusProgressBar = document.getElementById('focus-progress-bar');
+        const btnFocusExit = document.getElementById('btn-focus-exit');
+        const allDoneMainTask = document.getElementById('all-done-main-task');
+        const btnBackToDash = document.getElementById('btn-back-to-dash');
+
+        // --- Data Persistence (LocalStorage) ---
+        function loadTasksFromLocal() {
+            const tasksJSON = localStorage.getItem('adhdTasks');
+            tasks = tasksJSON ? JSON.parse(tasksJSON) : [];
+        }
+
+        function saveTasksToLocal() {
+            localStorage.setItem('adhdTasks', JSON.stringify(tasks));
+        }
+
+        // --- View Management ---
+        function switchView(viewId) {
+            views.forEach(v => v.classList.remove('active'));
+            document.getElementById(viewId).classList.add('active');
+        }
+
+        // --- Dashboard (View 1) ---
+        function renderDashboard() {
+            taskListContainer.innerHTML = '';
+            if (tasks.length === 0) {
+                 taskListContainer.innerHTML = `<p class="col-span-2 text-center text-slate-400 p-8">点击右上角的 '+' 创建你的第一个任务流吧！</p>`;
+            }
+            tasks.forEach(task => {
+                const card = document.createElement('div');
+                card.className = 'task-card bg-slate-100 rounded-lg p-4 text-left font-semibold text-slate-700 h-24 flex items-start justify-start hover:bg-slate-200 transition-colors';
+                card.dataset.id = task.id;
+                
+                const taskName = document.createElement('span');
+                taskName.textContent = task.name;
+                card.appendChild(taskName);
+
+                const overlay = document.createElement('div');
+                overlay.className = 'edit-overlay';
+                overlay.innerHTML = `
+                    <button class="edit-btn bg-blue-500 text-white w-12 h-12 rounded-full flex items-center justify-center text-xs font-bold">编辑</button>
+                    <button class="delete-btn bg-red-500 text-white w-12 h-12 rounded-full flex items-center justify-center text-xs font-bold">删除</button>
+                `;
+                card.appendChild(overlay);
+
+                const startPress = () => {
+                    isLongPress = false;
+                    longPressTimer = setTimeout(() => {
+                        if (isDragging) return;
+                        isLongPress = true;
+                        document.querySelectorAll('.edit-overlay').forEach(o => o.classList.remove('visible'));
+                        overlay.classList.add('visible');
+                    }, 500);
+                };
+                const endPress = () => { clearTimeout(longPressTimer); };
+
+                card.addEventListener('mousedown', startPress);
+                card.addEventListener('mouseup', endPress);
+                card.addEventListener('mouseleave', endPress);
+                card.addEventListener('touchstart', startPress, { passive: true });
+                card.addEventListener('touchend', endPress);
+
+                card.addEventListener('click', (e) => {
+                    if (isLongPress || isDragging) { e.stopPropagation(); return; }
+                    if (!overlay.contains(e.target)) { startFocusMode(task.id); }
+                });
+                
+                overlay.querySelector('.edit-btn').onclick = (e) => { e.stopPropagation(); openEditor(task); };
+                overlay.querySelector('.delete-btn').onclick = (e) => { e.stopPropagation(); deleteTask(task.id); };
+
+                taskListContainer.appendChild(card);
+            });
+            switchView('view-dashboard');
+        }
+
+        // --- Editor (View 2) ---
+        function openEditor(task = null) {
+            document.querySelectorAll('.edit-overlay').forEach(o => o.classList.remove('visible'));
+            currentTask = task;
+            if (task) { 
+                editorTitle.textContent = '编辑任务';
+                editorTaskName.value = task.name;
+                editorSubtasks = JSON.parse(JSON.stringify(task.subtasks));
+            } else { 
+                editorTitle.textContent = '新建任务';
+                editorTaskName.value = '';
+                editorSubtasks = [];
+            }
+            renderEditorSubtasks();
+            switchView('view-editor');
+        }
+
+        function renderEditorSubtasks() {
+            editorSubtaskList.innerHTML = '';
+            editorSubtasks.forEach((sub, index) => {
+                const li = document.createElement('div');
+                li.className = 'flex items-center bg-white p-2 rounded-md border';
+                li.dataset.id = index;
+                li.innerHTML = `
+                    <span class="drag-handle text-slate-400 mr-3">☰</span>
+                    <span class="flex-grow">${sub.text}</span>
+                    <button class="delete-subtask-btn text-red-400 hover:text-red-600 font-bold px-2">×</button>
+                `;
+                li.querySelector('.delete-subtask-btn').onclick = () => {
+                    editorSubtasks.splice(index, 1);
+                    renderEditorSubtasks();
+                };
+                editorSubtaskList.appendChild(li);
+            });
+        }
+
+        function saveTask() {
+            const name = editorTaskName.value.trim();
+            if (!name) { alert('请为任务命名'); return; }
+            if (editorSubtasks.length === 0) { alert('请至少添加一个步骤'); return; }
+
+            if (currentTask) { // Update existing
+                const taskToUpdate = tasks.find(t => t.id === currentTask.id);
+                if (taskToUpdate) {
+                    taskToUpdate.name = name;
+                    taskToUpdate.subtasks = editorSubtasks;
+                }
+            } else { // Create new
+                const newTask = {
+                    id: Date.now(),
+                    name,
+                    subtasks: editorSubtasks,
+                    order: tasks.length
+                };
+                tasks.push(newTask);
+            }
+            saveTasksToLocal();
+            renderDashboard();
+        }
+
+        function deleteTask(taskId) {
+            if (confirm('你确定要永久删除这个任务吗？')) {
+                tasks = tasks.filter(t => t.id !== taskId);
+                tasks.forEach((t, index) => t.order = index);
+                saveTasksToLocal();
+                renderDashboard();
+            }
+        }
+
+        // --- Focus Mode (View 3 & 4) ---
+        function startFocusMode(taskId) {
+            currentTask = tasks.find(t => t.id === taskId);
+            if (!currentTask) return;
+            currentFocusIndex = 0;
+            renderFocusStep();
+            switchView('view-focus');
+        }
+
+        function renderFocusStep() {
+            if (currentFocusIndex >= currentTask.subtasks.length) {
+                showAllDoneScreen();
+                return;
+            }
+            
+            focusSubtaskText.classList.remove('fade-in');
+            void focusSubtaskText.offsetWidth; 
+            focusSubtaskText.textContent = currentTask.subtasks[currentFocusIndex].text;
+            focusSubtaskText.classList.add('fade-in');
+
+            const isLastStep = currentFocusIndex === currentTask.subtasks.length - 1;
+            btnFocusNext.innerHTML = isLastStep ? ICONS.DONE : ICONS.NEXT;
+            renderProgressBar();
+        }
+
+        function renderProgressBar() {
+            focusProgressBar.innerHTML = '';
+            const n = currentTask.subtasks.length;
+            if (n === 0) return;
+
+            const baseGrow = 1.0;
+            const increment = 0.5;
+
+            for (let i = 0; i < n; i++) {
+                const segment = document.createElement('div');
+                const flexGrowValue = baseGrow + (i * increment);
+                segment.className = 'progress-segment h-full rounded-md';
+                segment.style.flexGrow = flexGrowValue;
+                segment.style.backgroundColor = i <= currentFocusIndex ? '#22c55e' : '#e2e8f0';
+                focusProgressBar.appendChild(segment);
+            }
+        }
+        
+        function showAllDoneScreen() {
+            allDoneMainTask.textContent = `“${currentTask.name}”`;
+            switchView('view-all-done');
+        }
+
+        function handleNextStep() {
+            currentFocusIndex++;
+            renderFocusStep();
+        }
+
+        // --- Initialization ---
+        function initialize() {
+            // Event Listeners
+            btnNewTask.onclick = () => openEditor();
+            btnEditorBack.onclick = () => renderDashboard();
+            btnSaveTask.onclick = saveTask;
+            formAddSubtask.addEventListener('submit', e => {
+                e.preventDefault();
+                const text = editorSubtaskInput.value.trim();
+                if (text) {
+                    editorSubtasks.push({ text });
+                    renderEditorSubtasks();
+                    editorSubtaskInput.value = '';
+                }
+            });
+            btnFocusNext.onclick = handleNextStep;
+            btnFocusExit.onclick = () => renderDashboard();
+            btnBackToDash.onclick = () => renderDashboard();
+
+            // SortableJS for Editor Subtasks
+            new Sortable(editorSubtaskList, { animation: 150, handle: '.drag-handle', ghostClass: 'sortable-ghost', onEnd: (evt) => { const item = editorSubtasks.splice(evt.oldIndex, 1)[0]; editorSubtasks.splice(evt.newIndex, 0, item); } });
+
+            // SortableJS for Dashboard Tasks
+            new Sortable(taskListContainer, { 
+                animation: 150, 
+                ghostClass: 'sortable-ghost',
+                onStart: () => {
+                    isDragging = true;
+                    clearTimeout(longPressTimer);
+                },
+                onEnd: (evt) => {
+                    setTimeout(() => { isDragging = false; }, 50);
+                    
+                    const movedItem = tasks.splice(evt.oldIndex, 1)[0];
+                    tasks.splice(evt.newIndex, 0, movedItem);
+                    
+                    tasks.forEach((task, index) => { task.order = index; });
+                    saveTasksToLocal();
+                }
+            });
+
+            // Load data and render initial view
+            loadTasksFromLocal();
+            renderDashboard();
+        }
+        
+        // --- PWA Service Worker Registration ---
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('service-worker.js').then(registration => {
+                    console.log('ServiceWorker registration successful with scope: ', registration.scope);
+                }, err => {
+                    console.log('ServiceWorker registration failed: ', err);
+                });
+            });
+        }
+
+        initialize();
+    </script>
+</body>
+</html>
