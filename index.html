@@ -36,11 +36,6 @@
         .view-exit-backward { animation: slide-out-to-right 0.3s ease-out forwards; }
 
         /* --- 其他动画 --- */
-        @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
-        .fade-in { animation: fade-in 0.5s ease-out forwards; }
-        .fade-out { animation: fade-out 0.5s ease-in forwards; }
-
         @keyframes slide-in-down { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes slide-out-up { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-10px); height: 0; padding: 0; margin: 0; border: 0; } }
         .slide-out-up { animation: slide-out-up 0.3s ease-in forwards; }
@@ -142,6 +137,15 @@
             transform: scale(1);
         }
 
+        /* --- 呼吸动画 --- */
+        @keyframes breathing {
+            0%, 100% { transform: scale(1); box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.05), 0 4px 6px -4px rgb(0 0 0 / 0.05); }
+            50% { transform: scale(1.03); box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1); }
+        }
+        .breathing-button {
+            animation: breathing 2.5s ease-in-out infinite;
+        }
+
         /* --- 其他样式 --- */
         .sortable-ghost { background: #e0e7ff; opacity: 0.5; border-radius: 0.5rem; }
         .drag-handle { cursor: move; }
@@ -163,14 +167,14 @@
 
         <!-- ===== 界面 1: 任务仪表盘 (Dashboard) ===== -->
         <div id="view-dashboard" class="view active h-full">
-            <div id="dashboard-empty-state" class="h-full hidden">
-                <div class="h-full flex flex-col items-center justify-center text-center p-4 text-slate-500">
+            <div id="dashboard-empty-state" class="h-full flex-col hidden">
+                <div class="flex-grow flex flex-col items-center justify-center text-center p-4 text-slate-500">
                     <div class="relative w-48 h-48">
                         <div class="absolute inset-0 rounded-full bg-slate-800"></div>
                         <div class="absolute inset-4 rounded-full bg-slate-700"></div>
                         <div class="absolute inset-8 rounded-full bg-slate-600"></div>
                         <div class="absolute inset-12 rounded-full bg-white flex items-center justify-center">
-                            <button id="btn-new-task-empty" class="w-16 h-16 bg-slate-800 text-white rounded-full text-4xl flex items-center justify-center hover:bg-slate-700 transition-transform hover:scale-110">+</button>
+                            <button id="btn-new-task-empty" class="w-16 h-16 bg-slate-800 text-white rounded-full text-4xl flex items-center justify-center hover:bg-slate-700 transition-transform hover:scale-110 leading-none breathing-button">+</button>
                         </div>
                     </div>
                     <h2 class="text-xl font-bold text-slate-700 mt-8">看不见山高路远</h2>
@@ -184,7 +188,7 @@
                 </header>
                 <div id="task-list-container" class="flex-grow overflow-y-auto px-2 space-y-3"></div>
                 <div class="p-4 mt-auto">
-                    <button id="btn-new-task-list" class="w-full bg-slate-800 text-white rounded-xl py-4 text-lg font-semibold flex items-center justify-center hover:bg-slate-700 transition-colors shadow-lg">
+                    <button id="btn-new-task-list" class="w-full bg-slate-800 text-white rounded-xl py-4 text-lg font-semibold flex items-center justify-center hover:bg-slate-700 transition-colors shadow-lg breathing-button">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                           <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
                         </svg>
@@ -730,7 +734,25 @@
 
             // Initial Load
             loadTasksFromLocal();
-            renderDashboard();
+            
+            // Splash screen logic
+            const hasSeenSplash = sessionStorage.getItem('hasSeenSplash');
+            if (tasks.length === 0 || !hasSeenSplash) {
+                dashboardEmptyState.style.display = 'flex';
+                dashboardTaskList.style.display = 'none';
+                if (tasks.length > 0) {
+                    setTimeout(() => {
+                        dashboardEmptyState.classList.add('fade-out');
+                        dashboardEmptyState.addEventListener('animationend', () => {
+                            renderDashboard();
+                            dashboardTaskList.classList.add('fade-in');
+                        }, {once: true});
+                    }, 1500);
+                }
+                sessionStorage.setItem('hasSeenSplash', 'true');
+            } else {
+                 renderDashboard();
+            }
         }
 
         initialize();
