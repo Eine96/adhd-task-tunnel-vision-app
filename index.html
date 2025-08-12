@@ -4,13 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     
-    <!-- PWA Meta Tags -->
-    <title>任务隧道视野</title>
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>任务隧道视野 (本地版)</title>
     <meta name="theme-color" content="#f8fafc">
-    <link rel="manifest" href="manifest.json">
-    <link rel="apple-touch-icon" href="icon-192x192.png">
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
@@ -51,6 +46,7 @@
             opacity: 1;
             pointer-events: auto;
         }
+        .hidden-input { display: none; }
     </style>
 </head>
 <body class="flex items-center justify-center min-h-screen">
@@ -77,12 +73,8 @@
             </header>
             <input type="text" id="editor-task-name" placeholder="为任务命名" class="w-full p-3 mb-4 border-2 border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
             <div id="editor-subtask-list" class="space-y-2 flex-grow overflow-y-auto bg-slate-50 p-2 rounded-lg">
-                <!-- 子任务项会动态添加到这里 -->
+                <!-- 子任务项和添加按钮会动态添加到这里 -->
             </div>
-            <form id="form-add-subtask" class="flex items-center gap-2 mt-4">
-                <input type="text" id="editor-subtask-input" placeholder="添加步骤..." class="flex-grow p-3 border-2 border-slate-200 rounded-lg">
-                <button type="submit" class="bg-slate-800 text-white rounded-full w-10 h-10 text-2xl flex items-center justify-center shrink-0">+</button>
-            </form>
         </div>
 
         <!-- ===== 界面 3 & 4: 专注与完成 (Focus & Done) ===== -->
@@ -136,8 +128,6 @@
         const editorTitle = document.getElementById('editor-title');
         const editorTaskName = document.getElementById('editor-task-name');
         const editorSubtaskList = document.getElementById('editor-subtask-list');
-        const formAddSubtask = document.getElementById('form-add-subtask');
-        const editorSubtaskInput = document.getElementById('editor-subtask-input');
         const btnSaveTask = document.getElementById('btn-save-task');
         const btnEditorBack = document.getElementById('btn-editor-back');
         const focusSubtaskText = document.getElementById('focus-subtask-text');
@@ -237,37 +227,103 @@
             editorSubtaskList.innerHTML = '';
             editorSubtasks.forEach((sub, index) => {
                 const li = document.createElement('div');
-                li.className = 'flex items-center bg-white p-2 rounded-md border';
+                li.className = 'subtask-item flex items-center bg-white p-2 rounded-md border';
                 li.dataset.id = index;
-                li.innerHTML = `
-                    <span class="drag-handle text-slate-400 mr-3">☰</span>
-                    <span class="flex-grow">${sub.text}</span>
-                    <button class="delete-subtask-btn text-red-400 hover:text-red-600 font-bold px-2">×</button>
-                `;
+
+                const textSpan = document.createElement('span');
+                textSpan.className = 'flex-grow cursor-pointer';
+                textSpan.textContent = sub.text;
+
+                const editInput = document.createElement('input');
+                editInput.type = 'text';
+                editInput.className = 'hidden-input flex-grow bg-white p-0 m-0 border-none focus:ring-0';
+                editInput.value = sub.text;
+
+                textSpan.addEventListener('click', () => {
+                    textSpan.classList.add('hidden');
+                    editInput.classList.remove('hidden-input');
+                    editInput.focus();
+                    editInput.select();
+                });
+
+                const saveEdit = () => {
+                    const newText = editInput.value; // Keep the text as is, don't trim yet.
+                    editorSubtasks[index].text = newText;
+                    textSpan.textContent = newText;
+                   
+                    // If the text becomes empty, it will just be an empty item in the list.
+                    // It will be filtered out only when the main "Save" button is clicked.
+                    
+                    editInput.classList.add('hidden-input');
+                    textSpan.classList.remove('hidden');
+                };
+
+                editInput.addEventListener('blur', saveEdit);
+                editInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        editInput.blur();
+                    } else if (e.key === 'Escape') {
+                        editInput.value = sub.text;
+                        editInput.blur();
+                    }
+                });
+
+                li.innerHTML = `<span class="drag-handle text-slate-400 mr-3">☰</span>`;
+                li.appendChild(textSpan);
+                li.appendChild(editInput);
+                li.insertAdjacentHTML('beforeend', `<button class="delete-subtask-btn text-red-400 hover:text-red-600 font-bold px-2 ml-2">×</button>`);
+
                 li.querySelector('.delete-subtask-btn').onclick = () => {
                     editorSubtasks.splice(index, 1);
                     renderEditorSubtasks();
                 };
+
                 editorSubtaskList.appendChild(li);
             });
+
+            // Add the "Add Step" button at the end
+            const addButton = document.createElement('div');
+            addButton.className = 'mt-2 flex items-center justify-center bg-transparent p-2 rounded-md border-2 border-dashed border-slate-300 hover:bg-slate-100 cursor-pointer';
+            addButton.innerHTML = `<span class="text-slate-500 font-semibold">+ 添加步骤</span>`;
+            addButton.onclick = handleAddNewSubtask;
+            editorSubtaskList.appendChild(addButton);
+        }
+
+        function handleAddNewSubtask() {
+            editorSubtasks.push({ text: '' });
+            renderEditorSubtasks();
+
+            // Find the last subtask item and trigger edit mode
+            const listItems = editorSubtaskList.querySelectorAll('.subtask-item');
+            if (listItems.length > 0) {
+                const lastItem = listItems[listItems.length - 1];
+                const textSpan = lastItem.querySelector('span.cursor-pointer');
+                if (textSpan) {
+                    textSpan.click();
+                }
+            }
         }
 
         function saveTask() {
             const name = editorTaskName.value.trim();
             if (!name) { alert('请为任务命名'); return; }
-            if (editorSubtasks.length === 0) { alert('请至少添加一个步骤'); return; }
+
+            // Filter out any empty subtasks before saving
+            const finalSubtasks = editorSubtasks.filter(sub => sub.text.trim() !== '');
+
+            if (finalSubtasks.length === 0) { alert('请至少添加一个步骤'); return; }
 
             if (currentTask) { // Update existing
                 const taskToUpdate = tasks.find(t => t.id === currentTask.id);
                 if (taskToUpdate) {
                     taskToUpdate.name = name;
-                    taskToUpdate.subtasks = editorSubtasks;
+                    taskToUpdate.subtasks = finalSubtasks;
                 }
             } else { // Create new
                 const newTask = {
                     id: Date.now(),
                     name,
-                    subtasks: editorSubtasks,
+                    subtasks: finalSubtasks,
                     order: tasks.length
                 };
                 tasks.push(newTask);
@@ -344,21 +400,20 @@
             btnNewTask.onclick = () => openEditor();
             btnEditorBack.onclick = () => renderDashboard();
             btnSaveTask.onclick = saveTask;
-            formAddSubtask.addEventListener('submit', e => {
-                e.preventDefault();
-                const text = editorSubtaskInput.value.trim();
-                if (text) {
-                    editorSubtasks.push({ text });
-                    renderEditorSubtasks();
-                    editorSubtaskInput.value = '';
-                }
-            });
             btnFocusNext.onclick = handleNextStep;
             btnFocusExit.onclick = () => renderDashboard();
             btnBackToDash.onclick = () => renderDashboard();
 
             // SortableJS for Editor Subtasks
-            new Sortable(editorSubtaskList, { animation: 150, handle: '.drag-handle', ghostClass: 'sortable-ghost', onEnd: (evt) => { const item = editorSubtasks.splice(evt.oldIndex, 1)[0]; editorSubtasks.splice(evt.newIndex, 0, item); } });
+            new Sortable(editorSubtaskList, { 
+                animation: 150, 
+                handle: '.drag-handle', 
+                ghostClass: 'sortable-ghost', 
+                onEnd: (evt) => { 
+                    const item = editorSubtasks.splice(evt.oldIndex, 1)[0]; 
+                    editorSubtasks.splice(evt.newIndex, 0, item); 
+                } 
+            });
 
             // SortableJS for Dashboard Tasks
             new Sortable(taskListContainer, { 
@@ -382,17 +437,6 @@
             // Load data and render initial view
             loadTasksFromLocal();
             renderDashboard();
-        }
-        
-        // --- PWA Service Worker Registration ---
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('service-worker.js').then(registration => {
-                    console.log('ServiceWorker registration successful with scope: ', registration.scope);
-                }, err => {
-                    console.log('ServiceWorker registration failed: ', err);
-                });
-            });
         }
 
         initialize();
