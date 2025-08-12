@@ -105,8 +105,12 @@
         .countdown-pulse { animation: countdown-pulse 0.4s ease-in-out infinite; }
         @keyframes breathing { 0%, 100% { transform: scale(1); box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.05), 0 4px 6px -4px rgb(0 0 0 / 0.05); } 50% { transform: scale(1.03); box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1); } }
         .breathing-button { animation: breathing 2.5s ease-in-out infinite; }
-        .sortable-ghost { background: #e0e7ff; opacity: 0.5; border-radius: 0.5rem; }
-        .drag-handle { cursor: move; }
+        
+        /* FIX: Hide SortableJS ghost element */
+        .sortable-ghost {
+            opacity: 0 !important;
+        }
+
         .task-card-wrapper {
             position: relative;
             user-select: none;
@@ -119,11 +123,33 @@
             bottom: 0;
             display: flex;
         }
+        /* FIX: Add spring animation for action buttons */
+        @keyframes action-spring-in {
+            0% { transform: scale(0.5); }
+            80% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        .task-card-actions button {
+            transform: scale(0);
+        }
+        .is-swiped .task-card-actions button:nth-child(1) {
+            animation: action-spring-in 0.3s 0.1s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+        }
+        .is-swiped .task-card-actions button:nth-child(2) {
+            animation: action-spring-in 0.3s 0.15s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+        }
+
         .task-card-content {
             touch-action: pan-y;
             position: relative;
             z-index: 10;
             background-color: white;
+            transition: transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1), box-shadow 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+        /* FIX: Add pressing state for physical feedback */
+        .task-card-content.is-pressing {
+            transform: scale(0.98);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
         }
         .long-press-fill {
             position: absolute;
@@ -178,6 +204,7 @@
             setup(props, { emit }) {
                 const cardContent = ref(null);
                 const pressProgress = ref(0);
+                const isPressingEffect = ref(false); // FIX: For press-down animation
                 let pressStartTime = 0;
                 let animationFrameId = null;
                 const LONG_PRESS_DURATION = 1000;
@@ -193,6 +220,7 @@
                     gesture.startX = e.clientX || e.touches[0].clientX;
                     gesture.startY = e.clientY || e.touches[0].clientY;
                     gesture.isPressing = true;
+                    isPressingEffect.value = true; // FIX: Apply pressing style
                     pressStartTime = Date.now();
                     
                     animationFrameId = requestAnimationFrame(updatePressProgress);
@@ -226,20 +254,18 @@
                     const diffY = currentY - gesture.startY;
 
                     if (!gesture.isSwiping && Math.abs(diffX) < 10 && Math.abs(diffY) < 10) {
-                        return; // Not enough movement yet
+                        return;
                     }
 
-                    // If we start moving, it's no longer a press
                     cancelAnimationFrame(animationFrameId);
                     pressProgress.value = 0;
+                    isPressingEffect.value = false; // FIX: Remove pressing style if moving
 
                     if (!gesture.isSwiping) {
-                        // First significant move, decide if it's a swipe or vertical scroll/drag
                         if (Math.abs(diffX) > Math.abs(diffY)) {
                             gesture.isSwiping = true;
                             emit('swipe', props.task.id);
                         } else {
-                            // It's a vertical drag, let SortableJS handle it.
                             resetGesture();
                             return;
                         }
@@ -271,6 +297,7 @@
                 const resetGesture = () => {
                     gesture.isPressing = false;
                     gesture.isSwiping = false;
+                    isPressingEffect.value = false; // FIX: Always remove pressing style
                     pressProgress.value = 0;
                     cancelAnimationFrame(animationFrameId);
                     document.removeEventListener('mousemove', onPointerMove);
@@ -286,10 +313,10 @@
                     }
                 });
 
-                return { cardContent, pressProgress, onPointerDown };
+                return { cardContent, pressProgress, isPressingEffect, onPointerDown };
             },
             template: `
-                <div class="task-card-wrapper rounded-xl shadow-sm overflow-hidden">
+                <div class="task-card-wrapper rounded-xl shadow-sm overflow-hidden" :class="{ 'is-swiped': isSwiped }">
                     <div class="task-card-actions">
                         <button @click="$emit('edit', task)" class="bg-indigo-500 text-white w-[72px] flex items-center justify-center">编辑</button>
                         <button @click="$emit('delete', task.id)" class="bg-rose-500 text-white w-[72px] flex items-center justify-center">删除</button>
@@ -297,6 +324,7 @@
                     <div 
                         ref="cardContent"
                         class="task-card-content p-4 border flex items-center justify-between"
+                        :class="{ 'is-pressing': isPressingEffect }"
                         @mousedown="onPointerDown"
                         @touchstart="onPointerDown"
                     >
@@ -909,3 +937,4 @@
     </script>
 </body>
 </html>
+", please remove 
