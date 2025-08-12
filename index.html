@@ -14,53 +14,183 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
-        .view { display: none; }
-        .view.active { display: flex; flex-direction: column; }
-        .sortable-ghost { background: #e0e7ff; opacity: 0.5; border-radius: 0.5rem; }
-        .drag-handle { cursor: move; }
-        .progress-segment { transition: background-color 0.5s ease, flex-grow 0.5s ease; }
-        .fade-in { animation: fadeIn 0.5s ease forwards; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .task-card { 
-            cursor: grab; 
-            position: relative; 
-            overflow: hidden;
-            -webkit-user-select: none; /* Safari */
-            -ms-user-select: none; /* IE 10+ */
-            user-select: none; /* Standard */
-        }
-        .task-card:active { cursor: grabbing; }
-        .edit-overlay {
+        
+        /* --- 视图切换动画 --- */
+        .view {
+            display: none;
             position: absolute;
             inset: 0;
-            background-color: rgba(0,0,0,0.6);
+            padding: 1.25rem; /* p-5 */
+            flex-direction: column;
+        }
+        .view.active { display: flex; }
+
+        @keyframes slide-in-from-right { from { transform: translateX(100%); } to { transform: translateX(0); } }
+        @keyframes slide-out-to-left { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+        @keyframes slide-in-from-left { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+        @keyframes slide-out-to-right { from { transform: translateX(0); } to { transform: translateX(100%); } }
+
+        .view-enter-forward { animation: slide-in-from-right 0.3s ease-out forwards; }
+        .view-exit-forward { animation: slide-out-to-left 0.3s ease-out forwards; }
+        .view-enter-backward { animation: slide-in-from-left 0.3s ease-out forwards; }
+        .view-exit-backward { animation: slide-out-to-right 0.3s ease-out forwards; }
+
+        /* --- 其他动画 --- */
+        @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+        .fade-in { animation: fade-in 0.5s ease-out forwards; }
+        .fade-out { animation: fade-out 0.5s ease-in forwards; }
+
+        @keyframes slide-in-down { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes slide-out-up { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-10px); height: 0; padding: 0; margin: 0; border: 0; } }
+        .slide-out-up { animation: slide-out-up 0.3s ease-in forwards; }
+        
+        @keyframes slide-out-left { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(-20px); } }
+        @keyframes slide-in-right { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+        .focus-text-exit-forward { animation: slide-out-left 0.25s ease-out forwards; }
+        .focus-text-enter-forward { animation: slide-in-right 0.25s ease-out forwards; }
+
+        @keyframes slide-out-right-text { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(20px); } }
+        @keyframes slide-in-left-text { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: translateX(0); } }
+        .focus-text-exit-backward { animation: slide-out-right-text 0.25s ease-out forwards; }
+        .focus-text-enter-backward { animation: slide-in-left-text 0.25s ease-out forwards; }
+        
+        @keyframes countdown-pulse { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.2); opacity: 0.5; } 100% { transform: scale(1); opacity: 1; } }
+        .countdown-pulse { animation: countdown-pulse 0.5s ease-in-out infinite; }
+        
+        @keyframes ripple-effect {
+            to {
+                transform: scale(4);
+                opacity: 0;
+            }
+        }
+        .ripple {
+            position: absolute;
+            border-radius: 50%;
+            background-color: rgba(34, 197, 94, 0.3); /* green-500 with opacity */
+            transform: scale(0);
+            animation: ripple-effect 0.6s linear;
+            pointer-events: none;
+        }
+
+        /* --- 完成动画 --- */
+        .checkmark__circle {
+            stroke-dasharray: 166;
+            stroke-dashoffset: 166;
+            stroke-width: 2;
+            stroke-miterlimit: 10;
+            stroke: #22c55e; /* green-500 */
+            fill: none;
+            animation: stroke 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+        }
+        .checkmark {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            display: block;
+            stroke-width: 3;
+            stroke: #fff;
+            stroke-miterlimit: 10;
+            margin: 10% auto;
+            box-shadow: inset 0px 0px 0px #22c55e;
+            animation: fill .4s ease-in-out .4s forwards, scale .3s ease-in-out .9s both;
+        }
+        .checkmark__check {
+            transform-origin: 50% 50%;
+            stroke-dasharray: 48;
+            stroke-dashoffset: 48;
+            animation: stroke 0.3s cubic-bezier(0.65, 0, 0.45, 1) 0.8s forwards;
+        }
+        @keyframes stroke {
+            100% { stroke-dashoffset: 0; }
+        }
+        @keyframes scale {
+            0%, 100% { transform: none; }
+            50% { transform: scale3d(1.1, 1.1, 1); }
+        }
+        @keyframes fill {
+            100% { box-shadow: inset 0px 0px 0px 50px #22c55e; }
+        }
+        
+        /* --- Modal Styles --- */
+        .modal-overlay {
+            position: absolute;
+            inset: 0;
+            background-color: rgba(0, 0, 0, 0.5);
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 1rem;
             opacity: 0;
             pointer-events: none;
-            transition: opacity 0.2s ease;
+            transition: opacity 0.3s ease;
         }
-        .edit-overlay.visible {
+        .modal-overlay.visible {
             opacity: 1;
             pointer-events: auto;
         }
+        .modal-box {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 1rem;
+            width: 90%;
+            max-width: 300px;
+            text-align: center;
+            transform: scale(0.95);
+            transition: transform 0.3s ease;
+        }
+        .modal-overlay.visible .modal-box {
+            transform: scale(1);
+        }
+
+        /* --- 其他样式 --- */
+        .sortable-ghost { background: #e0e7ff; opacity: 0.5; border-radius: 0.5rem; }
+        .drag-handle { cursor: move; }
+        .progress-segment { transition: background-color 0.5s ease, flex-grow 0.5s ease, background 0.3s ease; cursor: pointer; }
+        .task-card { cursor: grab; position: relative; overflow: hidden; -webkit-user-select: none; user-select: none; }
+        .task-card:active { cursor: grabbing; }
+        .edit-overlay { position: absolute; inset: 0; background-color: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; gap: 1rem; opacity: 0; transform: scale(0.9); pointer-events: none; transition: opacity 0.2s ease, transform 0.2s ease; }
+        .edit-overlay.visible { opacity: 1; transform: scale(1); pointer-events: auto; }
+        .edit-overlay > button { transform: scale(0); transition: transform 0.2s ease; }
+        .edit-overlay.visible > .edit-btn { transform: scale(1); transition-delay: 0.1s; }
+        .edit-overlay.visible > .delete-btn { transform: scale(1); transition-delay: 0.15s; }
         .hidden-input { display: none; }
+        #progress-ring { transition: stroke-dashoffset 0.1s linear; }
     </style>
 </head>
 <body class="flex items-center justify-center min-h-screen">
 
-    <div id="app-container" class="w-full max-w-sm h-[85vh] max-h-[800px] mx-auto bg-white rounded-3xl shadow-lg p-5 flex flex-col">
+    <div id="app-container" class="w-full max-w-sm h-[85vh] max-h-[800px] mx-auto bg-white rounded-3xl shadow-lg flex flex-col relative overflow-hidden">
 
         <!-- ===== 界面 1: 任务仪表盘 (Dashboard) ===== -->
         <div id="view-dashboard" class="view active h-full">
-            <header class="flex justify-between items-center mb-6">
-                <h1 class="text-2xl font-bold text-slate-800">选择一个任务开始吧</h1>
-                <button id="btn-new-task" class="bg-slate-800 text-white rounded-full w-10 h-10 text-2xl font-semibold flex items-center justify-center hover:bg-slate-700 transition-colors shrink-0">+</button>
-            </header>
-            <div id="task-list-container" class="grid grid-cols-2 gap-4 flex-grow overflow-y-auto">
-                <!-- 任务卡片会动态添加到这里 -->
+            <div id="dashboard-empty-state" class="h-full hidden">
+                <div class="h-full flex flex-col items-center justify-center text-center p-4 text-slate-500">
+                    <div class="relative w-48 h-48">
+                        <div class="absolute inset-0 rounded-full bg-slate-800"></div>
+                        <div class="absolute inset-4 rounded-full bg-slate-700"></div>
+                        <div class="absolute inset-8 rounded-full bg-slate-600"></div>
+                        <div class="absolute inset-12 rounded-full bg-white flex items-center justify-center">
+                            <button id="btn-new-task-empty" class="w-16 h-16 bg-slate-800 text-white rounded-full text-4xl flex items-center justify-center hover:bg-slate-700 transition-transform hover:scale-110">+</button>
+                        </div>
+                    </div>
+                    <h2 class="text-xl font-bold text-slate-700 mt-8">看不见山高路远</h2>
+                    <p class="mt-1">只专注于下一步。</p>
+                </div>
+            </div>
+            <div id="dashboard-task-list" class="h-full flex-col hidden">
+                <header class="text-center pt-6 pb-4">
+                    <h1 class="text-3xl font-black text-slate-800">任务隧道</h1>
+                    <p class="text-slate-500 mt-2">一次只做一件事，轻松走向完成。</p>
+                </header>
+                <div id="task-list-container" class="flex-grow overflow-y-auto px-2 space-y-3"></div>
+                <div class="p-4 mt-auto">
+                    <button id="btn-new-task-list" class="w-full bg-slate-800 text-white rounded-xl py-4 text-lg font-semibold flex items-center justify-center hover:bg-slate-700 transition-colors shadow-lg">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                        </svg>
+                        创建新任务流
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -72,38 +202,63 @@
                 <button id="btn-save-task" class="bg-green-500 text-white px-4 py-1.5 rounded-full font-semibold hover:bg-green-600">完成</button>
             </header>
             <input type="text" id="editor-task-name" placeholder="为任务命名" class="w-full p-3 mb-4 border-2 border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
-            <div id="editor-subtask-list" class="space-y-2 flex-grow overflow-y-auto bg-slate-50 p-2 rounded-lg">
-                <!-- 子任务项和添加按钮会动态添加到这里 -->
+            <div id="editor-subtask-list" class="space-y-2 flex-grow overflow-y-auto bg-slate-50 p-2 rounded-lg"></div>
+        </div>
+
+        <!-- ===== 界面 3: 准备开始 (Get Ready) ===== -->
+        <div id="view-get-ready" class="view h-full justify-center items-center text-center">
+            <div>
+                <p class="text-slate-500 mb-2">准备开始：</p>
+                <h2 id="get-ready-task-name" class="text-4xl font-bold text-slate-800 mb-12"></h2>
+                <p id="get-ready-countdown" class="text-9xl font-black text-indigo-500"></p>
             </div>
         </div>
 
-        <!-- ===== 界面 3 & 4: 专注与完成 (Focus & Done) ===== -->
+        <!-- ===== 界面 4: 专注 (Focus) ===== -->
         <div id="view-focus" class="view h-full justify-between">
             <header class="flex justify-start">
                  <button id="btn-focus-exit" class="text-slate-400 hover:text-slate-600">&larr; 退出</button>
             </header>
-            <div class="flex-grow flex items-center justify-center">
-                <p id="focus-subtask-text" class="text-4xl font-bold text-center text-slate-800 break-words fade-in"></p>
+            <div class="flex-grow flex items-center justify-center overflow-hidden relative">
+                <p id="focus-subtask-text" class="text-4xl font-bold text-center text-slate-800 break-words"></p>
             </div>
             <div class="w-full">
                 <div class="flex justify-center items-center mb-6">
-                    <button id="btn-focus-next" class="bg-white rounded-full w-20 h-20 flex items-center justify-center shadow-lg border-4 border-slate-800 transition-transform hover:scale-105">
-                        <!-- SVG Icon will be injected here -->
-                    </button>
+                    <div id="btn-focus-next-container" class="relative w-24 h-24">
+                        <svg class="absolute inset-0 w-full h-full" viewBox="0 0 100 100">
+                            <circle class="text-slate-200" stroke-width="8" stroke="currentColor" fill="transparent" r="46" cx="50" cy="50" />
+                            <circle id="progress-ring" class="text-green-500" stroke-width="8" stroke="currentColor" fill="transparent" r="46" cx="50" cy="50"
+                                stroke-linecap="round"
+                                transform="rotate(-90 50 50)"
+                                style="stroke-dasharray: 289; stroke-dashoffset: 289;" />
+                        </svg>
+                        <button id="btn-focus-next" class="w-20 h-20 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-full flex items-center justify-center shadow-lg border-4 border-slate-800"></button>
+                    </div>
                 </div>
-                <div id="focus-progress-bar" class="w-full h-4 flex items-stretch gap-2">
-                    <!-- 进度方块会动态添加到这里 -->
-                </div>
+                <div id="focus-progress-bar" class="w-full h-4 flex items-stretch gap-2"></div>
             </div>
         </div>
         
-        <!-- ===== 全部完成界面 ===== -->
+        <!-- ===== 界面 5: 全部完成 (All Done) ===== -->
         <div id="view-all-done" class="view h-full justify-center items-center text-center">
-            <h1 class="text-5xl font-black text-green-500 mb-4">太棒了！</h1>
-            <p id="all-done-main-task" class="text-2xl text-slate-600 mb-8"></p>
-            <p class="text-lg text-slate-500 mb-12">你已经成功完成了所有步骤！为你自己喝彩！</p>
-            <button id="btn-back-to-dash" class="bg-indigo-500 text-white px-8 py-4 rounded-lg font-bold text-lg hover:bg-indigo-600">返回主页</button>
+            <div id="all-done-content">
+                <div id="checkmark-container"></div>
+                <p id="all-done-main-task" class="text-2xl text-slate-600 my-8"></p>
+                <button id="btn-back-to-dash" class="bg-indigo-500 text-white px-8 py-4 rounded-lg font-bold text-lg hover:bg-indigo-600">返回主页</button>
+            </div>
         </div>
+        
+        <!-- ===== 自定义确认弹窗 ===== -->
+        <div id="custom-confirm-modal" class="modal-overlay">
+            <div class="modal-box">
+                <p id="confirm-modal-text" class="text-lg text-slate-800 mb-6"></p>
+                <div class="flex justify-center gap-4">
+                    <button id="confirm-btn-cancel" class="px-6 py-2 rounded-lg bg-slate-200 text-slate-700 hover:bg-slate-300">取消</button>
+                    <button id="confirm-btn-ok" class="px-6 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600">删除</button>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <script type="module">
@@ -115,6 +270,9 @@
         let longPressTimer;
         let isLongPress = false;
         let isDragging = false;
+        let currentView = 'view-dashboard';
+        let pressStartTime, animationFrameId;
+        const PRESS_DURATION = 800; // ms
 
         const ICONS = {
             NEXT: `<svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>`,
@@ -122,22 +280,34 @@
         };
 
         // --- DOM Elements ---
+        const appContainer = document.getElementById('app-container');
         const views = document.querySelectorAll('.view');
-        const taskListContainer = document.getElementById('task-list-container');
-        const btnNewTask = document.getElementById('btn-new-task');
+        const dashboardContainer = document.getElementById('view-dashboard');
+        const dashboardEmptyState = document.getElementById('dashboard-empty-state');
+        const dashboardTaskList = document.getElementById('dashboard-task-list');
         const editorTitle = document.getElementById('editor-title');
         const editorTaskName = document.getElementById('editor-task-name');
         const editorSubtaskList = document.getElementById('editor-subtask-list');
         const btnSaveTask = document.getElementById('btn-save-task');
         const btnEditorBack = document.getElementById('btn-editor-back');
+        const getReadyTaskName = document.getElementById('get-ready-task-name');
+        const getReadyCountdown = document.getElementById('get-ready-countdown');
         const focusSubtaskText = document.getElementById('focus-subtask-text');
+        const btnFocusNextContainer = document.getElementById('btn-focus-next-container');
         const btnFocusNext = document.getElementById('btn-focus-next');
+        const progressRing = document.getElementById('progress-ring');
         const focusProgressBar = document.getElementById('focus-progress-bar');
         const btnFocusExit = document.getElementById('btn-focus-exit');
+        const allDoneContent = document.getElementById('all-done-content');
+        const checkmarkContainer = document.getElementById('checkmark-container');
         const allDoneMainTask = document.getElementById('all-done-main-task');
         const btnBackToDash = document.getElementById('btn-back-to-dash');
+        const confirmModal = document.getElementById('custom-confirm-modal');
+        const confirmModalText = document.getElementById('confirm-modal-text');
+        const confirmBtnOk = document.getElementById('confirm-btn-ok');
+        const confirmBtnCancel = document.getElementById('confirm-btn-cancel');
 
-        // --- Data Persistence (LocalStorage) ---
+        // --- Data Persistence ---
         function loadTasksFromLocal() {
             const tasksJSON = localStorage.getItem('adhdTasks');
             tasks = tasksJSON ? JSON.parse(tasksJSON) : [];
@@ -146,69 +316,108 @@
         function saveTasksToLocal() {
             localStorage.setItem('adhdTasks', JSON.stringify(tasks));
         }
+        
+        // --- Custom Confirm Modal ---
+        function showConfirm(text, onConfirm) {
+            confirmModalText.textContent = text;
+            confirmModal.classList.add('visible');
+
+            const handleConfirm = () => {
+                onConfirm(true);
+                hideConfirm();
+            };
+            const handleCancel = () => {
+                onConfirm(false);
+                hideConfirm();
+            };
+            
+            confirmBtnOk.onclick = handleConfirm;
+            confirmBtnCancel.onclick = handleCancel;
+        }
+
+        function hideConfirm() {
+            confirmModal.classList.remove('visible');
+            confirmBtnOk.onclick = null;
+            confirmBtnCancel.onclick = null;
+        }
 
         // --- View Management ---
-        function switchView(viewId) {
-            views.forEach(v => v.classList.remove('active'));
-            document.getElementById(viewId).classList.add('active');
+        function switchView(nextViewId, direction = 'forward') {
+            const currentViewEl = document.getElementById(currentView);
+            const nextViewEl = document.getElementById(nextViewId);
+            const enterClass = direction === 'forward' ? 'view-enter-forward' : 'view-enter-backward';
+            const exitClass = direction === 'forward' ? 'view-exit-forward' : 'view-exit-backward';
+            nextViewEl.classList.add('active');
+            currentViewEl.classList.add(exitClass);
+            nextViewEl.classList.add(enterClass);
+            currentViewEl.addEventListener('animationend', () => {
+                currentViewEl.classList.remove('active', exitClass);
+            }, { once: true });
+            nextViewEl.addEventListener('animationend', () => {
+                nextViewEl.classList.remove(enterClass);
+            }, { once: true });
+            currentView = nextViewId;
         }
 
-        // --- Dashboard (View 1) ---
+        // --- Dashboard ---
         function renderDashboard() {
-            taskListContainer.innerHTML = '';
             if (tasks.length === 0) {
-                 taskListContainer.innerHTML = `<p class="col-span-2 text-center text-slate-400 p-8">点击右上角的 '+' 创建你的第一个任务流吧！</p>`;
-            }
-            tasks.forEach(task => {
-                const card = document.createElement('div');
-                card.className = 'task-card bg-slate-100 rounded-lg p-4 text-left font-semibold text-slate-700 h-24 flex items-start justify-start hover:bg-slate-200 transition-colors';
-                card.dataset.id = task.id;
+                dashboardEmptyState.style.display = 'flex';
+                dashboardTaskList.style.display = 'none';
+            } else {
+                dashboardEmptyState.style.display = 'none';
+                dashboardTaskList.style.display = 'flex';
+                const taskListContainerEl = document.getElementById('task-list-container');
+                taskListContainerEl.innerHTML = '';
                 
-                const taskName = document.createElement('span');
-                taskName.textContent = task.name;
-                card.appendChild(taskName);
-
-                const overlay = document.createElement('div');
-                overlay.className = 'edit-overlay';
-                overlay.innerHTML = `
-                    <button class="edit-btn bg-blue-500 text-white w-12 h-12 rounded-full flex items-center justify-center text-xs font-bold">编辑</button>
-                    <button class="delete-btn bg-red-500 text-white w-12 h-12 rounded-full flex items-center justify-center text-xs font-bold">删除</button>
-                `;
-                card.appendChild(overlay);
-
-                const startPress = () => {
-                    isLongPress = false;
-                    longPressTimer = setTimeout(() => {
-                        if (isDragging) return;
-                        isLongPress = true;
-                        document.querySelectorAll('.edit-overlay').forEach(o => o.classList.remove('visible'));
-                        overlay.classList.add('visible');
-                    }, 500);
-                };
-                const endPress = () => { clearTimeout(longPressTimer); };
-
-                card.addEventListener('mousedown', startPress);
-                card.addEventListener('mouseup', endPress);
-                card.addEventListener('mouseleave', endPress);
-                card.addEventListener('touchstart', startPress, { passive: true });
-                card.addEventListener('touchend', endPress);
-
-                card.addEventListener('click', (e) => {
-                    if (isLongPress || isDragging) { e.stopPropagation(); return; }
-                    if (!overlay.contains(e.target)) { startFocusMode(task.id); }
+                tasks.forEach((task, index) => {
+                    const card = document.createElement('div');
+                    card.className = 'task-card bg-white rounded-xl p-4 shadow-sm border flex items-center justify-between hover:border-indigo-400 transition-colors';
+                    card.style.animation = `slide-in-down 0.4s ease-out ${index * 0.05}s forwards; opacity: 0;`;
+                    card.dataset.id = task.id;
+                    card.innerHTML = `
+                        <div>
+                            <span class="font-semibold text-slate-700">${task.name}</span>
+                            <p class="text-xs text-slate-400">${task.subtasks.length} 个步骤</p>
+                        </div>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                        </svg>
+                        <div class="edit-overlay">
+                            <button class="edit-btn bg-blue-500 text-white w-12 h-12 rounded-full flex items-center justify-center text-xs font-bold">编辑</button>
+                            <button class="delete-btn bg-red-500 text-white w-12 h-12 rounded-full flex items-center justify-center text-xs font-bold">删除</button>
+                        </div>`;
+                    const startPress = () => {
+                        isLongPress = false;
+                        longPressTimer = setTimeout(() => {
+                            if (isDragging) return;
+                            isLongPress = true;
+                            document.querySelectorAll('.edit-overlay').forEach(o => o.classList.remove('visible'));
+                            card.querySelector('.edit-overlay').classList.add('visible');
+                        }, 500);
+                    };
+                    const endPress = () => clearTimeout(longPressTimer);
+                    card.addEventListener('mousedown', startPress);
+                    card.addEventListener('mouseup', endPress);
+                    card.addEventListener('mouseleave', endPress);
+                    card.addEventListener('touchstart', startPress, { passive: true });
+                    card.addEventListener('touchend', endPress);
+                    card.addEventListener('click', (e) => {
+                        if (isLongPress || isDragging) { e.stopPropagation(); return; }
+                        if (!e.target.closest('.edit-overlay')) { startFocusMode(task.id); }
+                    });
+                    card.querySelector('.edit-btn').onclick = (e) => { e.stopPropagation(); openEditor(task); };
+                    card.querySelector('.delete-btn').onclick = (e) => { e.stopPropagation(); deleteTask(task.id); };
+                    taskListContainerEl.appendChild(card);
                 });
                 
-                overlay.querySelector('.edit-btn').onclick = (e) => { e.stopPropagation(); openEditor(task); };
-                overlay.querySelector('.delete-btn').onclick = (e) => { e.stopPropagation(); deleteTask(task.id); };
-
-                taskListContainer.appendChild(card);
-            });
-            switchView('view-dashboard');
+                new Sortable(taskListContainerEl, { animation: 150, ghostClass: 'sortable-ghost', onStart: () => { isDragging = true; clearTimeout(longPressTimer); }, onEnd: (evt) => { setTimeout(() => { isDragging = false; }, 50); const movedItem = tasks.splice(evt.oldIndex, 1)[0]; tasks.splice(evt.newIndex, 0, movedItem); tasks.forEach((task, index) => { task.order = index; }); saveTasksToLocal(); } });
+            }
         }
 
-        // --- Editor (View 2) ---
+
+        // --- Editor ---
         function openEditor(task = null) {
-            document.querySelectorAll('.edit-overlay').forEach(o => o.classList.remove('visible'));
             currentTask = task;
             if (task) { 
                 editorTitle.textContent = '编辑任务';
@@ -220,146 +429,112 @@
                 editorSubtasks = [];
             }
             renderEditorSubtasks();
-            switchView('view-editor');
+            switchView('view-editor', 'forward');
         }
 
-        function renderEditorSubtasks() {
+        function renderEditorSubtasks(focusLast = false) {
             editorSubtaskList.innerHTML = '';
+            const listFragment = document.createDocumentFragment();
             editorSubtasks.forEach((sub, index) => {
                 const li = document.createElement('div');
                 li.className = 'subtask-item flex items-center bg-white p-2 rounded-md border';
-                li.dataset.id = index;
-
-                const textSpan = document.createElement('span');
-                textSpan.className = 'flex-grow cursor-pointer';
-                textSpan.textContent = sub.text;
-
-                const editInput = document.createElement('input');
-                editInput.type = 'text';
-                editInput.className = 'hidden-input flex-grow bg-white p-0 m-0 border-none focus:ring-0';
-                editInput.value = sub.text;
-
-                textSpan.addEventListener('click', () => {
-                    textSpan.classList.add('hidden');
-                    editInput.classList.remove('hidden-input');
-                    editInput.focus();
-                    editInput.select();
-                });
-
-                const saveEdit = () => {
-                    const newText = editInput.value; // Keep the text as is, don't trim yet.
-                    editorSubtasks[index].text = newText;
-                    textSpan.textContent = newText;
-                   
-                    // If the text becomes empty, it will just be an empty item in the list.
-                    // It will be filtered out only when the main "Save" button is clicked.
-                    
-                    editInput.classList.add('hidden-input');
-                    textSpan.classList.remove('hidden');
-                };
-
-                editInput.addEventListener('blur', saveEdit);
-                editInput.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter') {
-                        editInput.blur();
-                    } else if (e.key === 'Escape') {
-                        editInput.value = sub.text;
-                        editInput.blur();
-                    }
-                });
-
-                li.innerHTML = `<span class="drag-handle text-slate-400 mr-3">☰</span>`;
-                li.appendChild(textSpan);
-                li.appendChild(editInput);
-                li.insertAdjacentHTML('beforeend', `<button class="delete-subtask-btn text-red-400 hover:text-red-600 font-bold px-2 ml-2">×</button>`);
-
-                li.querySelector('.delete-subtask-btn').onclick = () => {
-                    editorSubtasks.splice(index, 1);
-                    renderEditorSubtasks();
-                };
-
-                editorSubtaskList.appendChild(li);
+                li.dataset.index = index;
+                if (focusLast && index === editorSubtasks.length - 1) {
+                    li.style.animation = `slide-in-down 0.3s ease-out forwards`;
+                    li.style.opacity = '0';
+                }
+                li.innerHTML = `
+                    <span class="drag-handle text-slate-400 mr-3">☰</span>
+                    <span class="text-span flex-grow cursor-pointer">${sub.text || '&nbsp;'}</span>
+                    <input type="text" class="edit-input hidden-input flex-grow bg-white p-0 m-0 border-none focus:ring-0" value="${sub.text || ''}">
+                    <button class="delete-subtask-btn text-red-400 hover:text-red-600 font-bold px-2 ml-2">×</button>
+                `;
+                listFragment.appendChild(li);
             });
-
-            // Add the "Add Step" button at the end
+            editorSubtaskList.appendChild(listFragment);
             const addButton = document.createElement('div');
+            addButton.id = 'add-step-btn';
             addButton.className = 'mt-2 flex items-center justify-center bg-transparent p-2 rounded-md border-2 border-dashed border-slate-300 hover:bg-slate-100 cursor-pointer';
             addButton.innerHTML = `<span class="text-slate-500 font-semibold">+ 添加步骤</span>`;
-            addButton.onclick = handleAddNewSubtask;
             editorSubtaskList.appendChild(addButton);
+            if (focusLast) {
+                const lastItem = editorSubtaskList.querySelector('.subtask-item:last-of-type');
+                if (lastItem) { lastItem.querySelector('.text-span').click(); }
+            }
         }
 
         function handleAddNewSubtask() {
             editorSubtasks.push({ text: '' });
-            renderEditorSubtasks();
-
-            // Find the last subtask item and trigger edit mode
-            const listItems = editorSubtaskList.querySelectorAll('.subtask-item');
-            if (listItems.length > 0) {
-                const lastItem = listItems[listItems.length - 1];
-                const textSpan = lastItem.querySelector('span.cursor-pointer');
-                if (textSpan) {
-                    textSpan.click();
-                }
-            }
+            renderEditorSubtasks(true);
         }
 
         function saveTask() {
             const name = editorTaskName.value.trim();
             if (!name) { alert('请为任务命名'); return; }
-
-            // Filter out any empty subtasks before saving
             const finalSubtasks = editorSubtasks.filter(sub => sub.text.trim() !== '');
-
             if (finalSubtasks.length === 0) { alert('请至少添加一个步骤'); return; }
-
-            if (currentTask) { // Update existing
+            if (currentTask) {
                 const taskToUpdate = tasks.find(t => t.id === currentTask.id);
                 if (taskToUpdate) {
                     taskToUpdate.name = name;
                     taskToUpdate.subtasks = finalSubtasks;
                 }
-            } else { // Create new
-                const newTask = {
-                    id: Date.now(),
-                    name,
-                    subtasks: finalSubtasks,
-                    order: tasks.length
-                };
-                tasks.push(newTask);
+            } else {
+                tasks.push({ id: Date.now(), name, subtasks: finalSubtasks, order: tasks.length });
             }
             saveTasksToLocal();
             renderDashboard();
+            switchView('view-dashboard', 'backward');
         }
 
         function deleteTask(taskId) {
-            if (confirm('你确定要永久删除这个任务吗？')) {
-                tasks = tasks.filter(t => t.id !== taskId);
-                tasks.forEach((t, index) => t.order = index);
-                saveTasksToLocal();
-                renderDashboard();
-            }
+            showConfirm('你确定要永久删除这个任务吗？', (confirmed) => {
+                if (confirmed) {
+                    tasks = tasks.filter(t => t.id !== taskId);
+                    tasks.forEach((t, index) => t.order = index);
+                    saveTasksToLocal();
+                    renderDashboard();
+                }
+            });
         }
 
-        // --- Focus Mode (View 3 & 4) ---
+        // --- Focus Mode ---
         function startFocusMode(taskId) {
             currentTask = tasks.find(t => t.id === taskId);
             if (!currentTask) return;
             currentFocusIndex = 0;
-            renderFocusStep();
-            switchView('view-focus');
+            getReadyTaskName.textContent = currentTask.name;
+            switchView('view-get-ready', 'forward');
+            let count = 3;
+            getReadyCountdown.textContent = count;
+            getReadyCountdown.classList.add('countdown-pulse');
+            const countdownInterval = setInterval(() => {
+                count--;
+                if (count > 0) {
+                    getReadyCountdown.textContent = count;
+                } else if (count === 0) {
+                     getReadyCountdown.textContent = 'Go!';
+                } else {
+                    clearInterval(countdownInterval);
+                    getReadyCountdown.classList.remove('countdown-pulse');
+                    switchView('view-focus', 'forward');
+                    renderFocusStep();
+                }
+            }, 500);
         }
 
-        function renderFocusStep() {
+        function renderFocusStep(direction = 'forward') {
             if (currentFocusIndex >= currentTask.subtasks.length) {
                 showAllDoneScreen();
                 return;
             }
             
-            focusSubtaskText.classList.remove('fade-in');
-            void focusSubtaskText.offsetWidth; 
+            const enterClass = direction === 'forward' ? 'focus-text-enter-forward' : 'focus-text-enter-backward';
+            
             focusSubtaskText.textContent = currentTask.subtasks[currentFocusIndex].text;
-            focusSubtaskText.classList.add('fade-in');
+            focusSubtaskText.className = 'text-4xl font-bold text-center text-slate-800 break-words';
+            void focusSubtaskText.offsetWidth;
+            focusSubtaskText.classList.add(enterClass);
 
             const isLastStep = currentFocusIndex === currentTask.subtasks.length - 1;
             btnFocusNext.innerHTML = isLastStep ? ICONS.DONE : ICONS.NEXT;
@@ -370,71 +545,190 @@
             focusProgressBar.innerHTML = '';
             const n = currentTask.subtasks.length;
             if (n === 0) return;
-
             const baseGrow = 1.0;
             const increment = 0.5;
-
             for (let i = 0; i < n; i++) {
                 const segment = document.createElement('div');
-                const flexGrowValue = baseGrow + (i * increment);
                 segment.className = 'progress-segment h-full rounded-md';
+                segment.dataset.index = i;
+                const flexGrowValue = baseGrow + (i * increment);
                 segment.style.flexGrow = flexGrowValue;
-                segment.style.backgroundColor = i <= currentFocusIndex ? '#22c55e' : '#e2e8f0';
+                segment.style.backgroundColor = i < currentFocusIndex ? '#22c55e' : '#e2e8f0';
                 focusProgressBar.appendChild(segment);
             }
         }
         
         function showAllDoneScreen() {
-            allDoneMainTask.textContent = `“${currentTask.name}”`;
-            switchView('view-all-done');
+            allDoneMainTask.textContent = `“${currentTask.name}” 已完成`;
+            switchView('view-all-done', 'forward');
+            
+            checkmarkContainer.innerHTML = `
+                <svg class="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
+                    <circle class="checkmark__circle" cx="26" cy="26" r="25" fill="none"/>
+                    <path class="checkmark__check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
+                </svg>
+            `;
         }
 
         function handleNextStep() {
-            currentFocusIndex++;
-            renderFocusStep();
+            triggerVisualFeedback();
+            focusSubtaskText.className = 'text-4xl font-bold text-center text-slate-800 break-words focus-text-exit-forward';
+            setTimeout(() => {
+                currentFocusIndex++;
+                renderFocusStep('forward');
+            }, 250);
+        }
+
+        function triggerVisualFeedback() {
+            const ripple = document.createElement('div');
+            ripple.className = 'ripple';
+            const size = btnFocusNextContainer.offsetWidth * 1.5;
+            ripple.style.width = `${size}px`;
+            ripple.style.height = `${size}px`;
+            ripple.style.left = `${(btnFocusNextContainer.offsetWidth - size) / 2}px`;
+            ripple.style.top = `${(btnFocusNextContainer.offsetHeight - size) / 2}px`;
+            btnFocusNextContainer.appendChild(ripple);
+            setTimeout(() => ripple.remove(), 600);
         }
 
         // --- Initialization ---
         function initialize() {
             // Event Listeners
-            btnNewTask.onclick = () => openEditor();
-            btnEditorBack.onclick = () => renderDashboard();
-            btnSaveTask.onclick = saveTask;
-            btnFocusNext.onclick = handleNextStep;
-            btnFocusExit.onclick = () => renderDashboard();
-            btnBackToDash.onclick = () => renderDashboard();
-
-            // SortableJS for Editor Subtasks
-            new Sortable(editorSubtaskList, { 
-                animation: 150, 
-                handle: '.drag-handle', 
-                ghostClass: 'sortable-ghost', 
-                onEnd: (evt) => { 
-                    const item = editorSubtasks.splice(evt.oldIndex, 1)[0]; 
-                    editorSubtasks.splice(evt.newIndex, 0, item); 
-                } 
-            });
-
-            // SortableJS for Dashboard Tasks
-            new Sortable(taskListContainer, { 
-                animation: 150, 
-                ghostClass: 'sortable-ghost',
-                onStart: () => {
-                    isDragging = true;
-                    clearTimeout(longPressTimer);
-                },
-                onEnd: (evt) => {
-                    setTimeout(() => { isDragging = false; }, 50);
-                    
-                    const movedItem = tasks.splice(evt.oldIndex, 1)[0];
-                    tasks.splice(evt.newIndex, 0, movedItem);
-                    
-                    tasks.forEach((task, index) => { task.order = index; });
-                    saveTasksToLocal();
+            document.addEventListener('click', (e) => {
+                if (e.target.closest('#btn-new-task-empty') || e.target.closest('#btn-new-task-list')) {
+                    openEditor();
                 }
             });
 
-            // Load data and render initial view
+            btnEditorBack.onclick = () => {
+                renderDashboard();
+                switchView('view-dashboard', 'backward');
+            };
+            btnSaveTask.onclick = saveTask;
+            btnFocusExit.onclick = () => switchView('view-dashboard', 'backward');
+            btnBackToDash.onclick = () => switchView('view-dashboard', 'backward');
+
+            // Delegated Event Listeners for Subtask List
+            editorSubtaskList.addEventListener('click', (e) => {
+                const target = e.target;
+                if (target.closest('#add-step-btn')) {
+                    handleAddNewSubtask();
+                    return;
+                }
+                const subtaskItem = target.closest('.subtask-item');
+                if (!subtaskItem) return;
+                const index = parseInt(subtaskItem.dataset.index, 10);
+                if (target.classList.contains('delete-subtask-btn')) {
+                    subtaskItem.classList.add('slide-out-up');
+                    subtaskItem.addEventListener('animationend', () => {
+                         editorSubtasks.splice(index, 1);
+                         renderEditorSubtasks();
+                    }, { once: true });
+                } else if (target.classList.contains('text-span')) {
+                    const textSpan = target;
+                    const editInput = subtaskItem.querySelector('.edit-input');
+                    textSpan.classList.add('hidden');
+                    editInput.classList.remove('hidden-input');
+                    editInput.focus();
+                    editInput.select();
+                }
+            });
+            editorSubtaskList.addEventListener('focusout', (e) => {
+                if (e.target.classList.contains('edit-input')) {
+                    const editInput = e.target;
+                    const subtaskItem = editInput.closest('.subtask-item');
+                    const textSpan = subtaskItem.querySelector('.text-span');
+                    const index = parseInt(subtaskItem.dataset.index, 10);
+                    editorSubtasks[index].text = editInput.value;
+                    textSpan.innerHTML = editInput.value || '&nbsp;';
+                    editInput.classList.add('hidden-input');
+                    textSpan.classList.remove('hidden');
+                }
+            });
+            editorSubtaskList.addEventListener('keydown', (e) => {
+                if (e.target.classList.contains('edit-input') && (e.key === 'Enter' || e.key === 'Escape')) {
+                    if (e.key === 'Escape') {
+                        const index = parseInt(e.target.closest('.subtask-item').dataset.index, 10);
+                        e.target.value = editorSubtasks[index].text;
+                    }
+                    e.target.blur();
+                }
+            });
+
+            // Long Press Button Logic
+            const circumference = 2 * Math.PI * 46;
+            progressRing.style.strokeDasharray = circumference;
+            const updateRing = () => {
+                const elapsed = Date.now() - pressStartTime;
+                const progress = Math.min(elapsed / PRESS_DURATION, 1);
+                const offset = circumference * (1 - progress);
+                progressRing.style.strokeDashoffset = offset;
+                const segment = focusProgressBar.querySelector(`[data-index="${currentFocusIndex}"]`);
+                if (segment) {
+                    const percentage = progress * 100;
+                    segment.style.background = `linear-gradient(to right, #22c55e ${percentage}%, #e2e8f0 ${percentage}%)`;
+                }
+                if (progress >= 1) {
+                    handleNextStep();
+                    cancelAnimationFrame(animationFrameId);
+                    progressRing.style.strokeDashoffset = circumference;
+                } else {
+                    animationFrameId = requestAnimationFrame(updateRing);
+                }
+            };
+            const startPress = (e) => {
+                e.preventDefault();
+                pressStartTime = Date.now();
+                animationFrameId = requestAnimationFrame(updateRing);
+            };
+            const endPress = (e) => {
+                e.preventDefault();
+                cancelAnimationFrame(animationFrameId);
+                progressRing.style.transition = 'stroke-dashoffset 0.3s ease-out';
+                progressRing.style.strokeDashoffset = circumference;
+                const segment = focusProgressBar.querySelector(`[data-index="${currentFocusIndex}"]`);
+                if (segment) {
+                    segment.style.background = '#e2e8f0';
+                }
+                setTimeout(() => {
+                    progressRing.style.transition = 'stroke-dashoffset 0.1s linear';
+                }, 300);
+            };
+            btnFocusNextContainer.addEventListener('mousedown', startPress);
+            btnFocusNextContainer.addEventListener('mouseup', endPress);
+            btnFocusNextContainer.addEventListener('mouseleave', endPress);
+            btnFocusNextContainer.addEventListener('touchstart', startPress, { passive: false });
+            btnFocusNextContainer.addEventListener('touchend', endPress);
+
+            // Clickable Progress Bar
+            focusProgressBar.addEventListener('click', (e) => {
+                const segment = e.target.closest('.progress-segment');
+                if (segment) {
+                    const newIndex = parseInt(segment.dataset.index, 10);
+                    if (newIndex !== currentFocusIndex) {
+                        const direction = newIndex > currentFocusIndex ? 'forward' : 'backward';
+                        const exitClass = direction === 'forward' ? 'focus-text-exit-forward' : 'focus-text-exit-backward';
+                        
+                        focusSubtaskText.className = 'text-4xl font-bold text-center text-slate-800 break-words';
+                        focusSubtaskText.classList.add(exitClass);
+                        
+                        setTimeout(() => {
+                            currentFocusIndex = newIndex;
+                            renderFocusStep(direction);
+                        }, 250);
+                    }
+                }
+            });
+
+            // Document-level listener to dismiss overlays
+            document.addEventListener('click', (e) => {
+                const visibleOverlay = document.querySelector('.edit-overlay.visible');
+                if (visibleOverlay && !visibleOverlay.parentElement.contains(e.target)) {
+                    visibleOverlay.classList.remove('visible');
+                }
+            });
+
+            // Initial Load
             loadTasksFromLocal();
             renderDashboard();
         }
