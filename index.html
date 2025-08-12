@@ -36,6 +36,11 @@
         .view-exit-backward { animation: slide-out-to-right 0.3s ease-out forwards; }
 
         /* --- 其他动画 --- */
+        @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+        .fade-in { animation: fade-in 0.5s ease-out forwards; }
+        .fade-out { animation: fade-out 0.5s ease-in forwards; }
+
         @keyframes slide-in-down { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes slide-out-up { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-10px); height: 0; padding: 0; margin: 0; border: 0; } }
         .slide-out-up { animation: slide-out-up 0.3s ease-in forwards; }
@@ -165,37 +170,27 @@
 
     <div id="app-container" class="w-full max-w-sm h-[85vh] max-h-[800px] mx-auto bg-white rounded-3xl shadow-lg flex flex-col relative overflow-hidden">
 
-        <!-- ===== 界面 1: 任务仪表盘 (Dashboard) ===== -->
-        <div id="view-dashboard" class="view active h-full">
-            <div id="dashboard-empty-state" class="h-full flex-col hidden">
-                <div class="flex-grow flex flex-col items-center justify-center text-center p-4 text-slate-500">
-                    <div class="relative w-48 h-48">
-                        <div class="absolute inset-0 rounded-full bg-indigo-600"></div>
-                        <div class="absolute inset-4 rounded-full bg-indigo-500"></div>
-                        <div class="absolute inset-8 rounded-full bg-indigo-400"></div>
-                        <div class="absolute inset-12 rounded-full bg-white flex items-center justify-center">
-                            <button id="btn-new-task-empty" class="w-16 h-16 bg-indigo-600 text-white rounded-full text-4xl flex items-center justify-center hover:bg-indigo-700 transition-transform hover:scale-110 leading-none breathing-button">+</button>
-                        </div>
-                    </div>
-                    <h2 class="text-xl font-bold text-slate-700 mt-8">看不见山高路远</h2>
-                    <p class="mt-1">只专注于下一步。</p>
-                </div>
-            </div>
-            <div id="dashboard-task-list" class="h-full flex-col hidden">
-                <header class="text-center pt-6 pb-4">
-                    <h1 class="text-3xl font-black text-slate-800">任务隧道</h1>
-                    <p class="text-slate-500 mt-2">一次只做一件事，轻松走向完成。</p>
-                </header>
-                <div id="task-list-container" class="flex-grow overflow-y-auto px-2 space-y-3"></div>
-                <div class="p-4 mt-auto">
-                    <button id="btn-new-task-list" class="w-full bg-indigo-600 text-white rounded-xl py-4 text-lg font-semibold flex items-center justify-center hover:bg-indigo-700 transition-colors shadow-lg breathing-button">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+        <!-- ===== 启动画面 (Splash Screen) ===== -->
+        <div id="view-splash" class="view active h-full cursor-pointer">
+            <div class="h-full flex flex-col items-center justify-center text-center p-4 text-slate-500">
+                <div class="relative w-48 h-48">
+                    <div class="absolute inset-0 rounded-full bg-indigo-600"></div>
+                    <div class="absolute inset-4 rounded-full bg-indigo-500"></div>
+                    <div class="absolute inset-8 rounded-full bg-indigo-400"></div>
+                    <div class="absolute inset-12 rounded-full bg-white flex items-center justify-center">
+                        <svg class="w-16 h-16 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                           <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                         </svg>
-                        创建新任务流
-                    </button>
+                    </div>
                 </div>
+                <h2 class="text-xl font-bold text-slate-700 mt-8">看不见山高路远</h2>
+                <p class="mt-1">只专注于下一步。</p>
             </div>
+        </div>
+
+        <!-- ===== 界面 1: 任务仪表盘 (Dashboard) ===== -->
+        <div id="view-dashboard" class="view h-full">
+            <!-- Content is rendered dynamically -->
         </div>
 
         <!-- ===== 界面 2: 任务编辑器 (Editor) ===== -->
@@ -274,9 +269,10 @@
         let longPressTimer;
         let isLongPress = false;
         let isDragging = false;
-        let currentView = 'view-dashboard';
+        let currentView = 'view-splash'; // Start with splash screen
         let pressStartTime, animationFrameId;
         const PRESS_DURATION = 800; // ms
+        let subtaskSortableInstance = null; // To hold the Sortable instance
 
         const ICONS = {
             NEXT: `<svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>`,
@@ -286,9 +282,8 @@
         // --- DOM Elements ---
         const appContainer = document.getElementById('app-container');
         const views = document.querySelectorAll('.view');
+        const splashView = document.getElementById('view-splash');
         const dashboardContainer = document.getElementById('view-dashboard');
-        const dashboardEmptyState = document.getElementById('dashboard-empty-state');
-        const dashboardTaskList = document.getElementById('dashboard-task-list');
         const editorTitle = document.getElementById('editor-title');
         const editorTaskName = document.getElementById('editor-task-name');
         const editorSubtaskList = document.getElementById('editor-subtask-list');
@@ -365,14 +360,40 @@
 
         // --- Dashboard ---
         function renderDashboard() {
+            dashboardContainer.innerHTML = ''; // Clear previous content
             if (tasks.length === 0) {
-                dashboardEmptyState.style.display = 'flex';
-                dashboardTaskList.style.display = 'none';
+                // Render empty state
+                dashboardContainer.innerHTML = `
+                    <div class="h-full flex flex-col items-center justify-center text-center p-4 text-slate-500">
+                         <h2 class="text-2xl font-bold text-slate-700 mt-8">你的任务列表是空的</h2>
+                         <p class="mt-2 max-w-xs">点击下方的按钮来创建你的第一个任务流吧。</p>
+                    </div>
+                    <div class="p-4 mt-auto">
+                        <button id="btn-new-task-list" class="w-full bg-indigo-600 text-white rounded-xl py-4 text-lg font-semibold flex items-center justify-center hover:bg-indigo-700 transition-colors shadow-lg breathing-button">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                            </svg>
+                            创建新任务流
+                        </button>
+                    </div>
+                `;
             } else {
-                dashboardEmptyState.style.display = 'none';
-                dashboardTaskList.style.display = 'flex';
+                // Render task list
+                dashboardContainer.innerHTML = `
+                    <header class="text-center pt-6 pb-4">
+                        <h1 class="text-3xl font-black text-slate-800">任务隧道</h1>
+                        <p class="text-slate-500 mt-2">一次只做一件事，轻松走向完成。</p>
+                    </header>
+                    <div id="task-list-container" class="flex-grow overflow-y-auto px-2 space-y-3"></div>
+                    <div class="p-4 mt-auto">
+                        <button id="btn-new-task-list" class="w-full bg-indigo-600 text-white rounded-xl py-4 text-lg font-semibold flex items-center justify-center hover:bg-indigo-700 transition-colors shadow-lg">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                            </svg>
+                            创建新任务流
+                        </button>
+                    </div>`;
                 const taskListContainerEl = document.getElementById('task-list-container');
-                taskListContainerEl.innerHTML = '';
                 
                 tasks.forEach((task, index) => {
                     const card = document.createElement('div');
@@ -417,6 +438,7 @@
                 
                 new Sortable(taskListContainerEl, { animation: 150, ghostClass: 'sortable-ghost', onStart: () => { isDragging = true; clearTimeout(longPressTimer); }, onEnd: (evt) => { setTimeout(() => { isDragging = false; }, 50); const movedItem = tasks.splice(evt.oldIndex, 1)[0]; tasks.splice(evt.newIndex, 0, movedItem); tasks.forEach((task, index) => { task.order = index; }); saveTasksToLocal(); } });
             }
+            document.getElementById('btn-new-task-list').onclick = openEditor;
         }
 
 
@@ -437,6 +459,9 @@
         }
 
         function renderEditorSubtasks(focusLast = false) {
+            if (subtaskSortableInstance) {
+                subtaskSortableInstance.destroy();
+            }
             editorSubtaskList.innerHTML = '';
             const listFragment = document.createDocumentFragment();
             editorSubtasks.forEach((sub, index) => {
@@ -461,6 +486,17 @@
             addButton.className = 'mt-2 flex items-center justify-center bg-transparent p-2 rounded-md border-2 border-dashed border-slate-300 hover:bg-slate-100 cursor-pointer';
             addButton.innerHTML = `<span class="text-slate-500 font-semibold">+ 添加步骤</span>`;
             editorSubtaskList.appendChild(addButton);
+
+            subtaskSortableInstance = new Sortable(editorSubtaskList, { 
+                animation: 150, 
+                handle: '.drag-handle', 
+                ghostClass: 'sortable-ghost', 
+                onEnd: (evt) => { 
+                    const item = editorSubtasks.splice(evt.oldIndex, 1)[0]; 
+                    editorSubtasks.splice(evt.newIndex, 0, item); 
+                } 
+            });
+
             if (focusLast) {
                 const lastItem = editorSubtaskList.querySelector('.subtask-item:last-of-type');
                 if (lastItem) { 
@@ -603,7 +639,7 @@
         function initialize() {
             // Event Listeners
             document.addEventListener('click', (e) => {
-                if (e.target.closest('#btn-new-task-empty') || e.target.closest('#btn-new-task-list')) {
+                if (e.target.closest('#btn-new-task-list')) {
                     openEditor();
                 }
             });
@@ -743,21 +779,17 @@
             
             // Splash screen logic
             const hasSeenSplash = sessionStorage.getItem('hasSeenSplash');
-            if (tasks.length === 0 || !hasSeenSplash) {
-                dashboardEmptyState.style.display = 'flex';
-                dashboardTaskList.style.display = 'none';
-                if (tasks.length > 0) {
-                    setTimeout(() => {
-                        dashboardEmptyState.classList.add('fade-out');
-                        dashboardEmptyState.addEventListener('animationend', () => {
-                            renderDashboard();
-                            dashboardTaskList.classList.add('fade-in');
-                        }, {once: true});
-                    }, 1500);
-                }
+            if (!hasSeenSplash) {
+                splashView.addEventListener('click', () => {
+                    renderDashboard();
+                    switchView('view-dashboard', 'forward');
+                }, { once: true });
                 sessionStorage.setItem('hasSeenSplash', 'true');
             } else {
+                 currentView = 'view-dashboard';
                  renderDashboard();
+                 document.getElementById('view-dashboard').classList.add('active');
+                 splashView.remove();
             }
         }
 
