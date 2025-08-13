@@ -94,7 +94,7 @@
             pointer-events: none;
         }
         .all-done-content {
-            animation: pop-in 0.5s 0.5s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+            animation: pop-in 0.5s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
             opacity: 0;
             transform: scale(0.9);
         }
@@ -119,6 +119,7 @@
             border-radius: 0.75rem;
             overflow: hidden;
             box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+            transition: transform 0.2s ease-out, box-shadow 0.2s ease-out;
         }
         .task-card-actions {
             position: absolute;
@@ -138,15 +139,58 @@
             transition: transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
             overflow: hidden;
         }
+        
+        /* --- 能量填充效果 --- */
         .long-press-fill {
             position: absolute;
             left: 0;
             top: 0;
             bottom: 0;
-            background-color: rgba(16, 185, 129, 0.2);
+            width: 0; /* 由JS控制 */
+            background: radial-gradient(circle at center left, rgba(26, 179, 135, 0.5), rgba(79, 70, 229, 0.3));
             z-index: 5;
-            transition: width 0.1s linear;
+            transition: width 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+            opacity: 0;
         }
+        
+        .long-press-active .long-press-fill {
+            opacity: 1;
+        }
+        
+        @keyframes card-pulse {
+             0%, 100% { transform: scale(1); }
+             50% { transform: scale(1.02); }
+        }
+        
+        .long-press-active {
+            animation: card-pulse 0.8s ease-in-out infinite;
+            box-shadow: 0 10px 20px rgba(79, 70, 229, 0.2);
+        }
+
+        @keyframes particle-burst {
+            0% {
+                transform: scale(1) translate(0, 0);
+                opacity: 1;
+            }
+            100% {
+                transform: scale(0) translate(var(--x), var(--y));
+                opacity: 0;
+            }
+        }
+
+        .fill-particle {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            width: 6px;
+            height: 6px;
+            background-color: var(--color);
+            border-radius: 50%;
+            pointer-events: none;
+            animation: particle-burst 0.6s ease-out forwards;
+            z-index: 6;
+        }
+
         .reorder-handle {
             cursor: grab;
         }
@@ -160,7 +204,7 @@
         }
 
         .checkmark__circle { stroke-dasharray: 166; stroke-dashoffset: 166; stroke-width: 2; stroke-miterlimit: 10; stroke: #10b981; fill: none; animation: stroke 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards; }
-        .checkmark { width: 100px; height: 100px; border-radius: 50%; display: block; stroke-width: 3; stroke: #fff; stroke-miterlimit: 10; margin: 10% auto; box-shadow: inset 0px 0px 0px #10b981; animation: fill .4s ease-in-out .4s forwards, scale .3s ease-in-out .9s both; }
+        .checkmark { width: 100px; height: 100px; border-radius: 50%; display: block; stroke-width: 3; stroke: #fff; stroke-miterlimit: 10; margin: 0 auto; box-shadow: inset 0px 0px 0px #10b981; animation: fill .4s ease-in-out .4s forwards, scale .3s ease-in-out .9s both; }
         .checkmark__check { transform-origin: 50% 50%; stroke-dasharray: 48; stroke-dashoffset: 48; animation: stroke 0.3s cubic-bezier(0.65, 0, 0.45, 1) 0.8s forwards; }
         @keyframes stroke { 100% { stroke-dashoffset: 0; } }
         @keyframes scale { 0%, 100% { transform: none; } 50% { transform: scale3d(1.1, 1.1, 1); } }
@@ -201,10 +245,14 @@
             emits: ['start', 'edit', 'delete', 'swipe', 'toggle-select'],
             setup(props, { emit }) {
                 const cardContent = ref(null);
+                const cardWrapper = ref(null);
+                const fillElement = ref(null);
                 const pressProgress = ref(0);
                 let pressStartTime = 0;
                 let animationFrameId = null;
                 const LONG_PRESS_DURATION = 800;
+                const PARTICLE_COLORS = ['#fde047', '#67e8f9', '#86efac', '#fca5a5'];
+                let lastParticleTime = 0;
 
                 const gesture = reactive({
                     startX: 0, startY: 0,
@@ -219,6 +267,8 @@
                     gesture.startY = e.clientY || e.touches[0].clientY;
                     gesture.isPressing = true;
                     pressStartTime = Date.now();
+
+                    if(cardWrapper.value) cardWrapper.value.classList.add('long-press-active');
                     
                     animationFrameId = requestAnimationFrame(updatePressProgress);
 
@@ -228,14 +278,37 @@
                     document.addEventListener('touchend', onPointerUp);
                 };
 
+                const createParticle = (progress) => {
+                    const particle = document.createElement('div');
+                    particle.className = 'fill-particle';
+                    const color = PARTICLE_COLORS[Math.floor(Math.random() * PARTICLE_COLORS.length)];
+                    const x = (Math.random() * 100 + 50) * (Math.random() > 0.5 ? 1 : -1);
+                    const y = (Math.random() * 100 + 50) * (Math.random() > 0.5 ? 1 : -1);
+                    
+                    particle.style.setProperty('--color', color);
+                    particle.style.setProperty('--x', `${x}px`);
+                    particle.style.setProperty('--y', `${y}px`);
+                    
+                    particle.style.left = `${progress}%`;
+                    
+                    if(fillElement.value) fillElement.value.appendChild(particle);
+                    setTimeout(() => particle.remove(), 600);
+                };
+
                 const updatePressProgress = () => {
                     if (!gesture.isPressing) return;
                     const elapsed = Date.now() - pressStartTime;
                     const progress = Math.min(elapsed / LONG_PRESS_DURATION, 1);
                     pressProgress.value = progress * 100;
 
+                    if (elapsed > lastParticleTime + 50) {
+                        createParticle(pressProgress.value);
+                        lastParticleTime = elapsed;
+                    }
+
                     if (progress >= 1) {
                         emit('start', props.task.id);
+                        if (navigator.vibrate) navigator.vibrate(50);
                         resetGesture();
                     } else {
                         animationFrameId = requestAnimationFrame(updatePressProgress);
@@ -243,24 +316,27 @@
                 };
 
                 const onPointerMove = (e) => {
-                    if (!gesture.isPressing) return;
-                    
+                    if (!gesture.isPressing && !gesture.isDragging) return;
+
                     const currentX = e.clientX || e.touches[0].clientX;
                     const currentY = e.clientY || e.touches[0].clientY;
                     const diffX = currentX - gesture.startX;
                     const diffY = currentY - gesture.startY;
 
-                    if (!gesture.isDragging && Math.abs(diffX) < 20 && Math.abs(diffY) < 20) return;
-
-                    cancelAnimationFrame(animationFrameId);
-                    pressProgress.value = 0;
-
                     if (!gesture.isDragging) {
-                        if (Math.abs(diffX) > Math.abs(diffY)) {
+                        if (Math.abs(diffX) > 20 && Math.abs(diffX) > Math.abs(diffY)) {
                             gesture.isDragging = true;
+                            gesture.isPressing = false; // Cancel press
+                            cancelAnimationFrame(animationFrameId);
+                            pressProgress.value = 0;
+                            if(cardWrapper.value) cardWrapper.value.classList.remove('long-press-active');
                             emit('swipe', { id: props.task.id, state: null });
-                        } else {
+                        } else if (Math.abs(diffY) > 10) {
+                            // Allow vertical scroll
                             resetGesture();
+                            return;
+                        } else {
+                            // Not a swipe yet, let long press continue
                             return;
                         }
                     }
@@ -297,6 +373,7 @@
                 };
 
                 const resetGesture = () => {
+                    if(cardWrapper.value) cardWrapper.value.classList.remove('long-press-active');
                     gesture.isPressing = false;
                     gesture.isDragging = false;
                     pressProgress.value = 0;
@@ -316,10 +393,10 @@
                     }
                 });
 
-                return { cardContent, pressProgress, onPointerDown };
+                return { cardContent, cardWrapper, fillElement, pressProgress, onPointerDown };
             },
             template: `
-                <div class="task-card-wrapper">
+                <div class="task-card-wrapper" ref="cardWrapper">
                     <div class="task-card-actions left">
                         <button @click="$emit('delete', task.id)" class="bg-rose-500 text-white w-[72px] h-full flex items-center justify-center">删除</button>
                     </div>
@@ -338,7 +415,7 @@
                         <div v-if="mode === 'reorder'" class="reorder-handle mr-4 text-slate-400">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
                         </div>
-                        <div class="long-press-fill" :style="{ width: pressProgress + '%' }"></div>
+                        <div class="long-press-fill" ref="fillElement" :style="{ width: pressProgress + '%' }"></div>
                         <div class="relative z-10 flex-grow">
                             <span class="font-semibold text-slate-700">{{ task.name }}</span>
                             <p class="text-xs text-slate-400">{{ task.subtasks.length }} 个步骤</p>
@@ -652,25 +729,27 @@
             emits: ['exit'],
             setup(props, { emit }) {
                 const currentIndex = ref(0);
-                const progressRing = ref(null);
                 const progressBarEl = ref(null);
                 const pressStartTime = ref(0);
                 const ripples = ref([]);
                 const isButtonPressed = ref(false);
                 let animationFrameId = null;
                 
+                const pressProgress = ref(0);
+                const fillElement = ref(null);
                 const PRESS_DURATION = 800;
+                const PARTICLE_COLORS = ['#fde047', '#67e8f9', '#86efac', '#fca5a5'];
+                let lastParticleTime = 0;
 
                 const ICONS = {
                     NEXT: `<svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>`,
-                    DONE: `<svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>`
+                    DONE: `<svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>`
                 };
 
                 const currentSubtask = computed(() => props.task.subtasks[currentIndex.value]);
                 const isLastStep = computed(() => currentIndex.value === props.task.subtasks.length - 1);
                 const nextButtonIcon = computed(() => isLastStep.value ? ICONS.DONE : ICONS.NEXT);
-                
-                const circumference = 2 * Math.PI * 46;
+                const iconClass = computed(() => pressProgress.value > 50 ? 'text-white' : 'text-slate-800');
 
                 const triggerRewardAnimation = () => {
                     const newRipple = { id: Date.now() };
@@ -680,47 +759,56 @@
                     }, 600);
                 };
 
-                const resetRing = () => {
-                    if (progressRing.value) {
-                        progressRing.value.style.transition = 'stroke-dashoffset 0.3s ease-out';
-                        progressRing.value.style.strokeDashoffset = circumference;
-                        setTimeout(() => {
-                            if(progressRing.value) progressRing.value.style.transition = 'stroke-dashoffset 0.1s linear';
-                        }, 300);
-                    }
+                const createParticle = (progress) => {
+                    if (!fillElement.value) return;
+                    const particle = document.createElement('div');
+                    particle.className = 'fill-particle';
+                    const color = PARTICLE_COLORS[Math.floor(Math.random() * PARTICLE_COLORS.length)];
+                    const x = (Math.random() * 100 + 50) * (Math.random() > 0.5 ? 1 : -1);
+                    const y = (Math.random() * 100 + 50) * (Math.random() > 0.5 ? 1 : -1);
+                    
+                    particle.style.setProperty('--color', color);
+                    particle.style.setProperty('--x', `${x}px`);
+                    particle.style.setProperty('--y', `${y}px`);
+                    particle.style.left = `${progress}%`;
+                    
+                    fillElement.value.appendChild(particle);
+                    setTimeout(() => particle.remove(), 600);
                 };
 
                 const handleNextStep = () => {
                     triggerRewardAnimation();
-                    if (currentIndex.value >= props.task.subtasks.length - 1) {
+                    if (isLastStep.value) {
                         emit('exit', true);
                         return;
                     }
                     currentIndex.value++;
                 };
 
-                const updateRing = () => {
+                const updatePressProgress = () => {
+                    if (!isButtonPressed.value) return;
                     const elapsed = Date.now() - pressStartTime.value;
                     const progress = Math.min(elapsed / PRESS_DURATION, 1);
-                    const offset = circumference * (1 - progress);
-                    if (progressRing.value) {
-                        progressRing.value.style.strokeDashoffset = offset;
-                    }
                     
+                    pressProgress.value = progress * 100;
+
                     if (progressBarEl.value) {
                         const segment = progressBarEl.value.children[currentIndex.value];
                         if (segment) {
-                            const percentage = progress * 100;
-                            segment.style.background = `linear-gradient(to right, #10b981 ${percentage}%, #e2e8f0 ${percentage}%)`;
+                            segment.style.background = `linear-gradient(to right, #10b981 ${progress * 100}%, #e2e8f0 ${progress * 100}%)`;
                         }
+                    }
+
+                    if (elapsed > lastParticleTime + 50) {
+                        createParticle(pressProgress.value);
+                        lastParticleTime = elapsed;
                     }
 
                     if (progress >= 1) {
                         handleNextStep();
                         cancelAnimationFrame(animationFrameId);
-                        resetRing();
                     } else {
-                        animationFrameId = requestAnimationFrame(updateRing);
+                        animationFrameId = requestAnimationFrame(updatePressProgress);
                     }
                 };
 
@@ -728,7 +816,8 @@
                     e.preventDefault();
                     isButtonPressed.value = true;
                     pressStartTime.value = Date.now();
-                    animationFrameId = requestAnimationFrame(updateRing);
+                    lastParticleTime = 0;
+                    animationFrameId = requestAnimationFrame(updatePressProgress);
                 };
 
                 const endPress = (e) => {
@@ -741,30 +830,23 @@
                         if (segment) segment.style.background = '';
                     }
                     
-                    resetRing();
+                    pressProgress.value = 0;
                 };
 
                 const goToStep = (index) => {
-                    if (index !== currentIndex.value) {
+                    if (index < currentIndex.value) {
                         currentIndex.value = index;
                     }
                 };
                 
-                onMounted(() => {
-                    if (progressRing.value) {
-                        progressRing.value.style.strokeDasharray = circumference;
-                        progressRing.value.style.strokeDashoffset = circumference;
-                    }
-                });
-                
                 watch(currentIndex, (newIndex, oldIndex) => {
                     if (progressBarEl.value) {
                         const oldSegment = progressBarEl.value.children[oldIndex];
-                        if (oldSegment) oldSegment.style.background = '';
+                        if (oldSegment) oldSegment.style.background = '#10b981';
                     }
                 });
 
-                return { currentIndex, currentSubtask, nextButtonIcon, progressRing, progressBarEl, ripples, isButtonPressed, startPress, endPress, goToStep };
+                return { currentIndex, currentSubtask, nextButtonIcon, iconClass, progressBarEl, ripples, isButtonPressed, startPress, endPress, goToStep, pressProgress, fillElement };
             },
             template: `
                 <div class="p-5 flex flex-col h-full justify-between">
@@ -778,15 +860,25 @@
                     </div>
                     <div class="w-full">
                         <div class="flex justify-center items-center mb-6">
-                            <div class="relative w-24 h-24 transition-transform" :class="{'scale-95': isButtonPressed}" @mousedown="startPress" @mouseup="endPress" @mouseleave="endPress" @touchstart.prevent="startPress" @touchend.prevent="endPress">
+                            <div 
+                                class="relative w-48 h-20 rounded-full overflow-hidden shadow-lg border-2 border-slate-200 bg-white cursor-pointer transition-transform" 
+                                :class="{'scale-95': isButtonPressed}" 
+                                @mousedown="startPress" @mouseup="endPress" @mouseleave="endPress" @touchstart.prevent="startPress" @touchend.prevent="endPress"
+                            >
+                                <!-- Reward Ripples Container -->
                                 <div class="absolute inset-0 flex items-center justify-center">
                                     <div v-for="ripple in ripples" :key="ripple.id" class="reward-ripple"></div>
                                 </div>
-                                <svg class="absolute inset-0 w-full h-full" viewBox="0 0 100 100">
-                                    <circle class="text-slate-200" stroke-width="8" stroke="currentColor" fill="transparent" r="46" cx="50" cy="50" />
-                                    <circle ref="progressRing" class="text-emerald-500" stroke-width="8" stroke="currentColor" fill="transparent" r="46" cx="50" cy="50" stroke-linecap="round" transform="rotate(-90 50 50)" />
-                                </svg>
-                                <button class="w-20 h-20 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-full flex items-center justify-center shadow-lg border-4 border-slate-800" v-html="nextButtonIcon"></button>
+                                <!-- Fill Layer -->
+                                <div 
+                                    ref="fillElement" 
+                                    class="absolute top-0 left-0 h-full"
+                                    style="background: radial-gradient(circle at center left, rgba(26, 179, 135, 0.7), rgba(79, 70, 229, 0.5)); transition: width 0.1s linear;"
+                                    :style="{ width: pressProgress + '%' }"
+                                >
+                                </div>
+                                <!-- Icon Layer -->
+                                <div class="absolute inset-0 flex items-center justify-center pointer-events-none transition-colors duration-300" :class="iconClass" v-html="nextButtonIcon"></div>
                             </div>
                         </div>
                         <div ref="progressBarEl" class="w-full h-4 flex items-stretch gap-2">
@@ -794,9 +886,9 @@
                                 v-for="(subtask, index) in task.subtasks" 
                                 :key="index"
                                 @click="goToStep(index)"
-                                class="h-full rounded-md transition-all duration-500 cursor-pointer"
-                                :class="index < currentIndex ? 'bg-emerald-500' : 'bg-slate-200'"
-                                :style="{ flexGrow: 1 + index * 0.5 }"
+                                class="h-full rounded-md transition-all duration-500"
+                                :class="[index < currentIndex ? 'bg-emerald-500' : 'bg-slate-200', index < currentIndex ? 'cursor-pointer hover:bg-emerald-600' : '']"
+                                :style="{ flexGrow: 1 }"
                             ></div>
                         </div>
                     </div>
@@ -808,9 +900,52 @@
         const AllDoneScreen = {
             props: ['taskName'],
             emits: ['back-to-dash'],
-            setup() {
+            setup(props, { emit }) {
                 const confettis = ref([]);
-                onMounted(() => {
+                const isButtonPressed = ref(false);
+                const pressProgress = ref(0);
+                const fillElement = ref(null);
+                const isCompleted = ref(false);
+                const encouragement = ref('');
+                
+                let pressStartTime = 0;
+                let animationFrameId = null;
+                const PRESS_DURATION = 1500;
+                const PARTICLE_COLORS = ['#fde047', '#67e8f9', '#f9a8d4', '#86efac', '#fca5a5', '#a78bfa'];
+                let lastParticleTime = 0;
+
+                const ENCOURAGEMENTS = [
+                    '太棒了，你做到了！',
+                    '为你骄傲！',
+                    '看，专注起来也没那么难。',
+                    '又完成了一项，继续加油！',
+                    '了不起的成就！',
+                    '感受一下这份成就感！'
+                ];
+
+                const createParticle = (progress) => {
+                    if (!fillElement.value) return;
+                    const particle = document.createElement('div');
+                    particle.className = 'fill-particle';
+                    const color = PARTICLE_COLORS[Math.floor(Math.random() * PARTICLE_COLORS.length)];
+                    const x = (Math.random() * 150 + 50) * (Math.random() > 0.5 ? 1 : -1);
+                    const y = (Math.random() * 150 + 50) * (Math.random() > 0.5 ? 1 : -1);
+                    
+                    particle.style.setProperty('--color', color);
+                    particle.style.setProperty('--x', `${x}px`);
+                    particle.style.setProperty('--y', `${y}px`);
+                    particle.style.left = `50%`; // From center
+                    particle.style.top = `50%`;
+                    
+                    fillElement.value.appendChild(particle);
+                    setTimeout(() => particle.remove(), 800);
+                };
+                
+                const handleCompletion = () => {
+                    isCompleted.value = true;
+                    if (navigator.vibrate) navigator.vibrate([100, 30, 100]);
+                    
+                    // Trigger confetti
                     const newConfettis = [];
                     const colors = ['#fde047', '#67e8f9', '#f9a8d4', '#86efac', '#fca5a5', '#a78bfa'];
                     for (let i = 0; i < 100; i++) {
@@ -825,21 +960,95 @@
                         });
                     }
                     confettis.value = newConfettis;
+
+                    setTimeout(() => {
+                        emit('back-to-dash');
+                    }, 2500);
+                };
+
+                const updatePressProgress = () => {
+                    if (!isButtonPressed.value) return;
+                    const elapsed = Date.now() - pressStartTime;
+                    const progress = Math.min(elapsed / PRESS_DURATION, 1);
+                    
+                    pressProgress.value = progress * 100;
+
+                    if (elapsed > lastParticleTime + 40) {
+                        createParticle(pressProgress.value);
+                        lastParticleTime = elapsed;
+                    }
+
+                    if (progress >= 1) {
+                        handleCompletion();
+                        cancelAnimationFrame(animationFrameId);
+                    } else {
+                        animationFrameId = requestAnimationFrame(updatePressProgress);
+                    }
+                };
+
+                const startPress = (e) => {
+                    if (isCompleted.value) return;
+                    e.preventDefault();
+                    isButtonPressed.value = true;
+                    pressStartTime = Date.now();
+                    lastParticleTime = 0;
+                    animationFrameId = requestAnimationFrame(updatePressProgress);
+                };
+
+                const endPress = (e) => {
+                    if (isCompleted.value) return;
+                    e.preventDefault();
+                    isButtonPressed.value = false;
+                    cancelAnimationFrame(animationFrameId);
+                    pressProgress.value = 0;
+                };
+
+                onMounted(() => {
+                   encouragement.value = ENCOURAGEMENTS[Math.floor(Math.random() * ENCOURAGEMENTS.length)];
                 });
-                return { confettis };
+
+                return { confettis, isButtonPressed, pressProgress, fillElement, isCompleted, encouragement, startPress, endPress };
             },
             template: `
-                <div class="p-5 flex flex-col h-full justify-center items-center text-center overflow-hidden">
+                <div class="p-5 flex flex-col h-full justify-center items-center text-center overflow-hidden all-done-content">
                     <div class="absolute inset-0 pointer-events-none">
                         <div v-for="c in confettis" :key="c.id" class="confetti" :style="c.style"></div>
                     </div>
-                    <div class="all-done-content">
-                        <svg class="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
-                            <circle class="checkmark__circle" cx="26" cy="26" r="25" fill="none"/>
-                            <path class="checkmark__check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
-                        </svg>
-                        <p class="text-2xl text-slate-600 my-8">“{{ taskName }}” 已完成</p>
-                        <button @click="$emit('back-to-dash')" class="bg-indigo-600 text-white px-8 py-4 rounded-lg font-bold text-lg hover:bg-indigo-700">返回主页</button>
+                    
+                    <transition name="flip">
+                        <div v-if="!isCompleted">
+                            <h2 class="text-3xl font-bold text-slate-800 mb-2">{{ encouragement }}</h2>
+                            <p class="text-lg text-slate-500 mb-12">“{{ taskName }}” 已完成！</p>
+                        </div>
+                    </transition>
+
+                    <div 
+                        class="relative w-48 h-48 rounded-full overflow-hidden shadow-2xl bg-white cursor-pointer transition-all duration-500 ease-in-out" 
+                        :class="{ 'scale-95': isButtonPressed && !isCompleted, 'scale-110 !rounded-full !bg-emerald-400': isCompleted }"
+                        @mousedown="startPress" @mouseup="endPress" @mouseleave="endPress" @touchstart.prevent="startPress" @touchend.prevent="endPress"
+                    >
+                        <!-- Fill Layer -->
+                        <div 
+                            ref="fillElement" 
+                            class="absolute top-0 left-0 h-full w-full origin-center transition-transform duration-200 ease-linear"
+                            :style="{ 
+                                background: 'radial-gradient(circle at center, rgba(26, 179, 135, 0.7), rgba(79, 70, 229, 0.5))',
+                                transform: 'scale(' + (pressProgress / 100) + ')',
+                                borderRadius: '50%'
+                            }"
+                        >
+                        </div>
+                        <!-- Icon Layer -->
+                        <div class="absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-300" :class="{'opacity-0': isCompleted}">
+                             <span class="text-slate-600 font-semibold">长按完成</span>
+                        </div>
+                         <!-- Checkmark -->
+                        <div v-if="isCompleted" class="absolute inset-0 flex items-center justify-center">
+                             <svg class="checkmark !w-24 !h-24 !m-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
+                                <circle class="checkmark__circle !stroke-white" cx="26" cy="26" r="25" fill="none"/>
+                                <path class="checkmark__check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
+                            </svg>
+                        </div>
                     </div>
                 </div>
             `
