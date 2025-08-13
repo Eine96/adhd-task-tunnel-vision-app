@@ -106,61 +106,56 @@
         @keyframes breathing { 0%, 100% { transform: scale(1); box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.05), 0 4px 6px -4px rgb(0 0 0 / 0.05); } 50% { transform: scale(1.03); box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1); } }
         .breathing-button { animation: breathing 2.5s ease-in-out infinite; }
         
-        /* FIX: Hide SortableJS ghost element */
-        .sortable-ghost {
-            opacity: 0 !important;
-        }
+        .sortable-ghost { opacity: 0 !important; }
+        .sortable-chosen { box-shadow: 0 10px 20px rgba(0,0,0,0.2); transform: scale(1.02); }
 
         .task-card-wrapper {
             position: relative;
             user-select: none;
             -webkit-user-select: none;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
         }
         .task-card-actions {
             position: absolute;
-            right: 0;
             top: 0;
             bottom: 0;
             display: flex;
+            align-items: center;
         }
-        /* FIX: Add spring animation for action buttons */
-        @keyframes action-spring-in {
-            0% { transform: scale(0.5); }
-            80% { transform: scale(1.1); }
-            100% { transform: scale(1); }
-        }
-        .task-card-actions button {
-            transform: scale(0);
-        }
-        .is-swiped .task-card-actions button:nth-child(1) {
-            animation: action-spring-in 0.3s 0.1s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
-        }
-        .is-swiped .task-card-actions button:nth-child(2) {
-            animation: action-spring-in 0.3s 0.15s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
-        }
+        .task-card-actions.left { left: 0; }
+        .task-card-actions.right { right: 0; }
 
         .task-card-content {
             touch-action: pan-y;
             position: relative;
             z-index: 10;
             background-color: white;
-            transition: transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1), box-shadow 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
-        }
-        /* FIX: Add pressing state for physical feedback */
-        .task-card-content.is-pressing {
-            transform: scale(0.98);
-            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            transition: transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+            overflow: hidden;
         }
         .long-press-fill {
             position: absolute;
             left: 0;
             top: 0;
             bottom: 0;
-            background-color: rgba(79, 70, 229, 0.2);
-            border-radius: 0.75rem;
+            background-color: rgba(16, 185, 129, 0.2);
             z-index: 5;
             transition: width 0.1s linear;
         }
+        .reorder-handle {
+            cursor: grab;
+        }
+        
+        @keyframes peek-a-boo {
+            0%, 100% { transform: translateX(0); }
+            50% { transform: translateX(-4px); }
+        }
+        .swipe-affordance-icon {
+            animation: peek-a-boo 1.5s 1s ease-in-out infinite;
+        }
+
         .checkmark__circle { stroke-dasharray: 166; stroke-dashoffset: 166; stroke-width: 2; stroke-miterlimit: 10; stroke: #10b981; fill: none; animation: stroke 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards; }
         .checkmark { width: 100px; height: 100px; border-radius: 50%; display: block; stroke-width: 3; stroke: #fff; stroke-miterlimit: 10; margin: 10% auto; box-shadow: inset 0px 0px 0px #10b981; animation: fill .4s ease-in-out .4s forwards, scale .3s ease-in-out .9s both; }
         .checkmark__check { transform-origin: 50% 50%; stroke-dasharray: 48; stroke-dashoffset: 48; animation: stroke 0.3s cubic-bezier(0.65, 0, 0.45, 1) 0.8s forwards; }
@@ -199,28 +194,27 @@
 
         // 2. 任务卡片子组件
         const TaskCard = {
-            props: ['task', 'isSwiped'],
-            emits: ['start', 'edit', 'delete', 'swipe'],
+            props: ['task', 'swipedState', 'mode', 'isSelected'],
+            emits: ['start', 'edit', 'delete', 'swipe', 'toggle-select'],
             setup(props, { emit }) {
                 const cardContent = ref(null);
                 const pressProgress = ref(0);
-                const isPressingEffect = ref(false); // FIX: For press-down animation
                 let pressStartTime = 0;
                 let animationFrameId = null;
                 const LONG_PRESS_DURATION = 1000;
 
                 const gesture = reactive({
                     startX: 0, startY: 0,
-                    isSwiping: false,
+                    isDragging: false,
                     isPressing: false,
                 });
 
                 const onPointerDown = (e) => {
-                    if (e.button === 2) return;
+                    if (props.mode !== 'default' || e.button === 2) return;
+                    
                     gesture.startX = e.clientX || e.touches[0].clientX;
                     gesture.startY = e.clientY || e.touches[0].clientY;
                     gesture.isPressing = true;
-                    isPressingEffect.value = true; // FIX: Apply pressing style
                     pressStartTime = Date.now();
                     
                     animationFrameId = requestAnimationFrame(updatePressProgress);
@@ -253,42 +247,47 @@
                     const diffX = currentX - gesture.startX;
                     const diffY = currentY - gesture.startY;
 
-                    if (!gesture.isSwiping && Math.abs(diffX) < 10 && Math.abs(diffY) < 10) {
-                        return;
-                    }
+                    if (!gesture.isDragging && Math.abs(diffX) < 20 && Math.abs(diffY) < 20) return;
 
                     cancelAnimationFrame(animationFrameId);
                     pressProgress.value = 0;
-                    isPressingEffect.value = false; // FIX: Remove pressing style if moving
 
-                    if (!gesture.isSwiping) {
+                    if (!gesture.isDragging) {
                         if (Math.abs(diffX) > Math.abs(diffY)) {
-                            gesture.isSwiping = true;
-                            emit('swipe', props.task.id);
+                            gesture.isDragging = true;
+                            emit('swipe', { id: props.task.id, state: null });
                         } else {
                             resetGesture();
                             return;
                         }
                     }
                     
-                    if (gesture.isSwiping) {
+                    if (gesture.isDragging) {
                         e.preventDefault();
-                        const newX = props.isSwiped ? -144 + diffX : diffX;
+                        let newX = diffX;
+                        if (props.swipedState === 'left') newX -= 72;
+                        if (props.swipedState === 'right') newX += 72;
+                        
+                        const clampedX = Math.max(-72, Math.min(72, newX));
+
                         cardContent.value.style.transition = 'none';
-                        cardContent.value.style.transform = `translateX(${Math.min(0, Math.max(-144, newX))}px)`;
+                        cardContent.value.style.transform = `translateX(${clampedX}px)`;
                     }
                 };
 
                 const onPointerUp = (e) => {
-                    if (gesture.isSwiping) {
+                    if (gesture.isDragging) {
                         const currentTransform = new DOMMatrix(getComputedStyle(cardContent.value).transform).m41;
                         cardContent.value.style.transition = 'transform 0.3s ease';
-                        if (currentTransform < -72) {
-                            cardContent.value.style.transform = 'translateX(-144px)';
-                            emit('swipe', props.task.id);
+                        if (currentTransform < -36) {
+                            cardContent.value.style.transform = 'translateX(-72px)';
+                            emit('swipe', { id: props.task.id, state: 'left' });
+                        } else if (currentTransform > 36) {
+                            cardContent.value.style.transform = 'translateX(72px)';
+                            emit('swipe', { id: props.task.id, state: 'right' });
                         } else {
                             cardContent.value.style.transform = 'translateX(0px)';
-                            emit('swipe', null);
+                            emit('swipe', { id: null, state: null });
                         }
                     }
                     resetGesture();
@@ -296,8 +295,7 @@
 
                 const resetGesture = () => {
                     gesture.isPressing = false;
-                    gesture.isSwiping = false;
-                    isPressingEffect.value = false; // FIX: Always remove pressing style
+                    gesture.isDragging = false;
                     pressProgress.value = 0;
                     cancelAnimationFrame(animationFrameId);
                     document.removeEventListener('mousemove', onPointerMove);
@@ -306,34 +304,43 @@
                     document.removeEventListener('touchend', onPointerUp);
                 };
                 
-                watch(() => props.isSwiped, (isSwiped) => {
-                    if (!isSwiped && cardContent.value) {
+                watch(() => props.swipedState, (state) => {
+                    if (cardContent.value) {
                         cardContent.value.style.transition = 'transform 0.3s ease';
-                        cardContent.value.style.transform = 'translateX(0px)';
+                        if (state === 'left') cardContent.value.style.transform = 'translateX(-72px)';
+                        else if (state === 'right') cardContent.value.style.transform = 'translateX(72px)';
+                        else cardContent.value.style.transform = 'translateX(0px)';
                     }
                 });
 
-                return { cardContent, pressProgress, isPressingEffect, onPointerDown };
+                return { cardContent, pressProgress, onPointerDown };
             },
             template: `
-                <div class="task-card-wrapper rounded-xl shadow-sm overflow-hidden" :class="{ 'is-swiped': isSwiped }">
-                    <div class="task-card-actions">
-                        <button @click="$emit('edit', task)" class="bg-indigo-500 text-white w-[72px] flex items-center justify-center">编辑</button>
-                        <button @click="$emit('delete', task.id)" class="bg-rose-500 text-white w-[72px] flex items-center justify-center">删除</button>
+                <div class="task-card-wrapper">
+                    <div class="task-card-actions left">
+                        <button @click="$emit('delete', task.id)" class="bg-rose-500 text-white w-[72px] h-full flex items-center justify-center">删除</button>
+                    </div>
+                    <div class="task-card-actions right">
+                        <button @click="$emit('edit', task)" class="bg-indigo-500 text-white w-[72px] h-full flex items-center justify-center">编辑</button>
                     </div>
                     <div 
                         ref="cardContent"
                         class="task-card-content p-4 border flex items-center justify-between"
-                        :class="{ 'is-pressing': isPressingEffect }"
                         @mousedown="onPointerDown"
                         @touchstart="onPointerDown"
                     >
+                        <div v-if="mode === 'select'" class="mr-4">
+                            <input type="checkbox" :checked="isSelected" @change="$emit('toggle-select', task.id)" class="w-5 h-5 rounded-full text-indigo-600 focus:ring-indigo-500">
+                        </div>
+                        <div v-if="mode === 'reorder'" class="reorder-handle mr-4 text-slate-400">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
+                        </div>
                         <div class="long-press-fill" :style="{ width: pressProgress + '%' }"></div>
-                        <div class="relative z-10">
+                        <div class="relative z-10 flex-grow">
                             <span class="font-semibold text-slate-700">{{ task.name }}</span>
                             <p class="text-xs text-slate-400">{{ task.subtasks.length }} 个步骤</p>
                         </div>
-                        <svg xmlns="http://www.w3.org/2000/svg" class="relative z-10 h-6 w-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
+                        <svg v-if="mode === 'default'" xmlns="http://www.w3.org/2000/svg" class="relative z-10 h-6 w-6 text-slate-400 swipe-affordance-icon" fill="none" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
                     </div>
                 </div>
             `
@@ -343,22 +350,66 @@
         const DashboardScreen = {
             components: { TaskCard },
             props: ['tasks'],
-            emits: ['create-task', 'start-task', 'edit-task', 'delete-task', 'update-order'],
+            emits: ['create-task', 'start-task', 'edit-task', 'delete-task', 'update-order', 'delete-multiple', 'archive-multiple'],
             setup(props, { emit }) {
                 const taskListEl = ref(null);
                 const swipedCardId = ref(null);
+                const swipedCardState = ref(null);
+                const isMenuOpen = ref(false);
+                const mode = ref('default'); // 'default', 'reorder', 'select'
+                const selectedTasks = ref(new Set());
                 let sortable = null;
 
-                const handleSwipe = (taskId) => {
-                    swipedCardId.value = taskId;
+                const handleSwipe = ({ id, state }) => {
+                    swipedCardId.value = id;
+                    swipedCardState.value = state;
+                };
+
+                const enterReorderMode = () => {
+                    mode.value = 'reorder';
+                    isMenuOpen.value = false;
+                    nextTick(initSortable);
+                };
+
+                const enterSelectMode = () => {
+                    mode.value = 'select';
+                    isMenuOpen.value = false;
+                };
+
+                const exitEditModes = () => {
+                    mode.value = 'default';
+                    selectedTasks.value.clear();
+                    if (sortable) {
+                        sortable.destroy();
+                        sortable = null;
+                    }
+                };
+                
+                const toggleSelectTask = (taskId) => {
+                    if (selectedTasks.value.has(taskId)) {
+                        selectedTasks.value.delete(taskId);
+                    } else {
+                        selectedTasks.value.add(taskId);
+                    }
+                };
+
+                const deleteSelected = () => {
+                    emit('delete-multiple', Array.from(selectedTasks.value));
+                    exitEditModes();
+                };
+
+                const archiveSelected = () => {
+                    emit('archive-multiple', Array.from(selectedTasks.value));
+                    exitEditModes();
                 };
 
                 const initSortable = () => {
                     if (sortable) sortable.destroy();
-                    if (taskListEl.value) {
+                    if (taskListEl.value && mode.value === 'reorder') {
                          sortable = new Sortable(taskListEl.value, {
                             animation: 150,
                             ghostClass: 'sortable-ghost',
+                            handle: '.reorder-handle',
                             onEnd: (evt) => {
                                 emit('update-order', { oldIndex: evt.oldIndex, newIndex: evt.newIndex });
                             }
@@ -380,47 +431,79 @@
                     }, delay);
                 }
 
-                onMounted(initSortable);
-                watch(() => props.tasks.length, () => {
-                    nextTick(initSortable);
+                watch(mode, (newMode) => {
+                    if (newMode !== 'reorder' && sortable) {
+                        sortable.destroy();
+                        sortable = null;
+                    }
                 });
 
-                return { taskListEl, swipedCardId, handleSwipe, beforeEnter, enter };
+                return { taskListEl, swipedCardId, swipedCardState, isMenuOpen, mode, selectedTasks, handleSwipe, enterReorderMode, enterSelectMode, exitEditModes, toggleSelectTask, deleteSelected, archiveSelected, beforeEnter, enter };
             },
             template: `
-                <div class="p-5 flex flex-col h-full">
-                    <template v-if="tasks.length === 0">
-                        <div class="h-full flex flex-col items-center justify-center text-center p-4 text-slate-500">
-                             <h2 class="text-2xl font-bold text-slate-700 mt-8">你的任务列表是空的</h2>
-                             <p class="mt-2 max-w-xs">点击下方的按钮来创建你的第一个任务流吧。</p>
-                        </div>
-                    </template>
-                    <template v-else>
-                        <header class="text-center pt-1 pb-4">
+                <div class="p-5 flex flex-col h-full" @click="handleSwipe({id: null, state: null}); isMenuOpen = false;">
+                    <!-- Header -->
+                    <header class="flex justify-between items-center pt-1 pb-4">
+                        <div v-if="mode === 'default'">
                             <h1 class="text-3xl font-black text-slate-800">任务隧道</h1>
-                            <p class="text-slate-500 mt-2">一次只做一件事，轻松走向完成。</p>
-                        </header>
-                        <div ref="taskListEl" class="flex-grow overflow-y-auto px-2 space-y-3">
-                            <transition-group @before-enter="beforeEnter" @enter="enter">
-                                <task-card 
-                                    v-for="(task, index) in tasks" 
-                                    :key="task.id" 
-                                    :data-index="index"
-                                    :task="task"
-                                    :is-swiped="swipedCardId === task.id"
-                                    @start="$emit('start-task', $event)"
-                                    @edit="$emit('edit-task', $event)"
-                                    @delete="$emit('delete-task', $event)"
-                                    @swipe="handleSwipe"
-                                />
-                            </transition-group>
                         </div>
-                    </template>
+                        <div v-if="mode === 'reorder'">
+                            <h1 class="text-xl font-bold text-slate-800">排序任务</h1>
+                        </div>
+                         <div v-if="mode === 'select'">
+                            <h1 class="text-xl font-bold text-slate-800">{{ selectedTasks.size > 0 ? \`已选择 \${selectedTasks.size} 项\` : '选择任务' }}</h1>
+                        </div>
+
+                        <div v-if="mode === 'default'" class="relative">
+                            <button @click.stop="isMenuOpen = !isMenuOpen" class="p-2 rounded-full hover:bg-slate-100">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" /></svg>
+                            </button>
+                            <div v-if="isMenuOpen" @click.stop="isMenuOpen = false" class="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl z-20 py-1">
+                                <a href="#" @click.prevent="enterReorderMode" class="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100">排序任务</a>
+                                <a href="#" @click.prevent="enterSelectMode" class="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100">选择任务</a>
+                            </div>
+                        </div>
+                         <button v-if="mode !== 'default'" @click="exitEditModes" class="px-4 py-1.5 rounded-full font-semibold bg-slate-200 hover:bg-slate-300 text-slate-800">
+                           {{ mode === 'reorder' ? '完成' : '取消' }}
+                         </button>
+                    </header>
+
+                    <!-- Task List -->
+                    <div v-if="tasks.length === 0" class="h-full flex flex-col items-center justify-center text-center p-4 text-slate-500">
+                         <h2 class="text-2xl font-bold text-slate-700 mt-8">你的任务列表是空的</h2>
+                         <p class="mt-2 max-w-xs">点击下方的按钮来创建你的第一个任务流吧。</p>
+                    </div>
+                    <div v-else ref="taskListEl" class="flex-grow overflow-y-auto px-2 space-y-3">
+                        <transition-group @before-enter="beforeEnter" @enter="enter">
+                            <task-card 
+                                v-for="(task, index) in tasks" 
+                                :key="task.id" 
+                                :data-index="index"
+                                :task="task"
+                                :swipedState="swipedCardId === task.id ? swipedCardState : null"
+                                :mode="mode"
+                                :isSelected="selectedTasks.has(task.id)"
+                                @start="$emit('start-task', $event)"
+                                @edit="$emit('edit-task', $event)"
+                                @delete="$emit('delete-task', $event)"
+                                @swipe="handleSwipe"
+                                @toggle-select="toggleSelectTask"
+                            />
+                        </transition-group>
+                    </div>
+
+                    <!-- Footer -->
                     <div class="p-4 mt-auto">
-                        <button @click.stop="$emit('create-task')" class="w-full bg-indigo-600 text-white rounded-xl py-4 text-lg font-semibold flex items-center justify-center hover:bg-indigo-700 transition-colors shadow-lg" :class="{'breathing-button': tasks.length === 0}">
+                        <transition name="depth-forward">
+                        <div v-if="mode === 'select'" class="flex justify-center gap-4">
+                             <button @click="archiveSelected" :disabled="selectedTasks.size === 0" class="px-6 py-3 rounded-lg font-semibold text-slate-700 bg-slate-200 hover:bg-slate-300 disabled:opacity-50">归档</button>
+                             <button @click="deleteSelected" :disabled="selectedTasks.size === 0" class="px-6 py-3 rounded-lg font-semibold text-white bg-rose-500 hover:bg-rose-600 disabled:opacity-50">删除</button>
+                        </div>
+                        <button v-else @click.stop="$emit('create-task')" class="w-full bg-indigo-600 text-white rounded-xl py-4 text-lg font-semibold flex items-center justify-center hover:bg-indigo-700 transition-colors shadow-lg" :class="{'breathing-button': tasks.length === 0}">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
                             创建新任务流
                         </button>
+                        </transition>
                     </div>
                 </div>
             `
@@ -507,11 +590,11 @@
                     </header>
                     <input type="text" v-model="taskName" placeholder="为任务命名" class="w-full p-3 mb-4 border-2 border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600">
                     <div class="flex-grow overflow-y-auto bg-slate-50 p-2 rounded-lg">
-                        <div ref="subtaskListEl" class="space-y-2">
-                            <transition-group name="stagger-list" tag="div">
-                                <div v-for="(sub, index) in subtasks" :key="sub.id" class="subtask-item flex items-center bg-white p-2 rounded-md border">
+                        <div ref="subtaskListEl">
+                             <transition-group name="stagger-list" tag="div" class="space-y-2">
+                                <div v-for="(sub, index) in subtasks" :key="sub.id" class="subtask-item flex items-center bg-white py-3 px-2 rounded-md">
                                     <span class="drag-handle text-slate-400 mr-3">☰</span>
-                                    <input type="text" v-model="sub.text" class="edit-input flex-grow bg-white p-0 m-0 border-none focus:ring-0" placeholder="步骤描述...">
+                                    <input type="text" v-model="sub.text" class="edit-input flex-grow bg-white p-0 m-0 border-none focus:ring-0 outline-none" placeholder="步骤描述...">
                                     <button @click="removeSubtask(index)" class="delete-subtask-btn text-rose-500 hover:text-rose-600 font-bold px-2 ml-2">×</button>
                                 </div>
                             </transition-group>
@@ -796,9 +879,10 @@
             setup() {
                 // --- State ---
                 const tasks = ref([]);
-                const currentView = ref('splash'); // splash, dashboard, editor, get-ready, focus, all-done
-                const viewDirection = ref('forward'); // 'forward' or 'backward'
-                const activeTask = ref(null); // The task being focused on or edited
+                const archivedTasks = ref([]); // New state for archived tasks
+                const currentView = ref('splash'); 
+                const viewDirection = ref('forward');
+                const activeTask = ref(null);
                 const confirmModalState = reactive({
                     visible: false,
                     text: '',
@@ -808,19 +892,16 @@
                 // --- Data Persistence ---
                 const loadTasks = () => {
                     const tasksJSON = localStorage.getItem('adhdTasksVue');
+                    const archivedJSON = localStorage.getItem('adhdArchivedTasksVue');
                     tasks.value = tasksJSON ? JSON.parse(tasksJSON) : [];
+                    archivedTasks.value = archivedJSON ? JSON.parse(archivedJSON) : [];
                 };
                 const saveTasks = () => {
                     localStorage.setItem('adhdTasksVue', JSON.stringify(tasks.value));
+                    localStorage.setItem('adhdArchivedTasksVue', JSON.stringify(archivedTasks.value));
                 };
                 
-                onMounted(() => {
-                    loadTasks();
-                    const hasSeenSplash = sessionStorage.getItem('hasSeenSplashVue');
-                    if (hasSeenSplash) {
-                        currentView.value = 'dashboard';
-                    }
-                });
+                onMounted(loadTasks);
 
                 // --- View Navigation ---
                 const navigate = (view, direction = 'forward', task = null) => {
@@ -846,10 +927,12 @@
                     navigate('dashboard', 'backward');
                 };
                 
-                const showDeleteConfirm = (taskId) => {
-                    confirmModalState.text = '你确定要永久删除这个任务吗？';
+                const showDeleteConfirm = (taskId, isMultiple = false) => {
+                    const taskIds = Array.isArray(taskId) ? taskId : [taskId];
+                    confirmModalState.text = isMultiple ? `你确定要永久删除这 ${taskIds.length} 个任务吗？` : '你确定要永久删除这个任务吗？';
                     confirmModalState.onConfirm = () => {
-                        tasks.value = tasks.value.filter(t => t.id !== taskId);
+                        const idsToDelete = new Set(taskIds);
+                        tasks.value = tasks.value.filter(t => !idsToDelete.has(t.id));
                         saveTasks();
                         confirmModalState.visible = false;
                     };
@@ -875,6 +958,18 @@
                     saveTasks();
                 };
 
+                const handleDeleteMultiple = (taskIds) => {
+                    showDeleteConfirm(taskIds, true);
+                };
+
+                const handleArchiveMultiple = (taskIds) => {
+                    const idsToArchive = new Set(taskIds);
+                    const tasksToArchive = tasks.value.filter(t => idsToArchive.has(t.id));
+                    archivedTasks.value.push(...tasksToArchive);
+                    tasks.value = tasks.value.filter(t => !idsToArchive.has(t.id));
+                    saveTasks();
+                };
+
                 return {
                     tasks,
                     currentView,
@@ -888,7 +983,9 @@
                     showDeleteConfirm,
                     handleStartTask,
                     handleFocusExit,
-                    handleUpdateTaskOrder
+                    handleUpdateTaskOrder,
+                    handleDeleteMultiple,
+                    handleArchiveMultiple
                 };
             },
             template: `
@@ -904,7 +1001,7 @@
                         @enter="navigate('dashboard')"
                         @create-task="handleCreateTask"
                         @edit-task="handleEditTask"
-                        @delete-task="showDeleteConfirm"
+                        @delete-task="showDeleteConfirm($event)"
                         @save="handleSaveTask"
                         @back="navigate('dashboard', 'backward')"
                         @start-task="handleStartTask"
@@ -912,6 +1009,8 @@
                         @exit="handleFocusExit"
                         @back-to-dash="navigate('dashboard', 'backward')"
                         @update-order="handleUpdateTaskOrder"
+                        @delete-multiple="handleDeleteMultiple"
+                        @archive-multiple="handleArchiveMultiple"
                     />
                 </transition>
 
