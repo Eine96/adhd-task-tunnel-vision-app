@@ -1,17 +1,18 @@
-// 定义缓存名称
-const CACHE_NAME = 'task-tunnel-cache-v1';
-// 定义需要缓存的文件列表
+// 定义缓存名称，每次更新文件后，建议修改版本号来触发更新
+const CACHE_NAME = 'task-tunnel-cache-v2'; 
+// 定义需要缓存的文件列表，使用相对路径
 const urlsToCache = [
-  '/',
-  '/index.html',
+  './',
+  './index.html',
+  './manifest.json',
   // 注意：您需要将所有用到的CSS和JS库的CDN链接也加到这里
   'https://unpkg.com/vue@3/dist/vue.global.js',
   'https://cdn.tailwindcss.com',
   'https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js',
   'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap',
-  // 您需要提供自己的图标文件
-  '/icons/icon-192x192.png',
-  '/icons/icon-512x512.png'
+  // 同样使用相对路径
+  './icons/icon-192x192.png',
+  './icons/icon-512x512.png'
 ];
 
 // 安装 Service Worker
@@ -21,7 +22,9 @@ self.addEventListener('install', event => {
     caches.open(CACHE_NAME)
       .then(cache => {
         console.log('Opened cache');
-        return cache.addAll(urlsToCache);
+        // 使用 no-cache 模式确保获取的是最新文件
+        const requests = urlsToCache.map(url => new Request(url, { cache: 'no-cache' }));
+        return cache.addAll(requests);
       })
   );
 });
