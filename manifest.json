@@ -2,7 +2,7 @@
   "name": "任务隧道",
   "short_name": "任务隧道",
   "description": "一个帮助你分解任务、专注当下的应用。",
-  "start_url": "/",
+  "start_url": ".",
   "display": "standalone",
   "background_color": "#f8fafc",
   "theme_color": "#4f46e5",
