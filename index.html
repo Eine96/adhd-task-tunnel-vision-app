@@ -39,11 +39,13 @@
         .flip-leave-to { transform: translateY(-30px) rotateX(90deg); opacity: 0; }
 
         /* 3. 列表交错动画 */
+        .stagger-list-move,
         .stagger-list-enter-active,
         .stagger-list-leave-active { transition: all 0.4s ease; }
         .stagger-list-enter-from,
         .stagger-list-leave-to { opacity: 0; transform: translateY(20px); }
-        /* JS中会为每个item动态添加 transition-delay */
+        .stagger-list-leave-active { position: absolute; }
+
 
         /* 4. 弹簧式弹窗动画 */
         .spring-modal-enter-active .modal-box { animation: spring-in 0.4s cubic-bezier(0.25, 0.8, 0.25, 1); }
@@ -61,18 +63,19 @@
             to { transform: scale(0.9); opacity: 0; }
         }
 
-        /* 5. 粒子奖励动画 */
-        @keyframes sparkle-effect {
-            0% { transform: scale(0.8); opacity: 1; }
-            100% { transform: scale(1.5) translate(var(--tx), var(--ty)); opacity: 0; }
+        /* 5. 能量波奖励动画 */
+        @keyframes ripple-out {
+            to {
+                transform: scale(4);
+                opacity: 0;
+            }
         }
-        .sparkle {
+        .reward-ripple {
             position: absolute;
-            background-color: var(--color);
-            width: 8px;
-            height: 8px;
             border-radius: 50%;
-            animation: sparkle-effect 0.6s ease-out forwards;
+            background-color: rgba(16, 185, 129, 0.3);
+            transform: scale(0);
+            animation: ripple-out 0.6s ease-out forwards;
             pointer-events: none;
         }
 
@@ -102,7 +105,7 @@
 
         /* --- 其他动画和样式 (部分保留和调整) --- */
         @keyframes countdown-pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.2); opacity: 0.5; } 100% { transform: scale(1); opacity: 1; } }
-        .countdown-pulse { animation: countdown-pulse 0.4s ease-in-out infinite; }
+        .countdown-pulse { animation: countdown-pulse 0.6s ease-in-out infinite; }
         @keyframes breathing { 0%, 100% { transform: scale(1); box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.05), 0 4px 6px -4px rgb(0 0 0 / 0.05); } 50% { transform: scale(1.03); box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1); } }
         .breathing-button { animation: breathing 2.5s ease-in-out infinite; }
         
@@ -201,7 +204,7 @@
                 const pressProgress = ref(0);
                 let pressStartTime = 0;
                 let animationFrameId = null;
-                const LONG_PRESS_DURATION = 1000;
+                const LONG_PRESS_DURATION = 800;
 
                 const gesture = reactive({
                     startX: 0, startY: 0,
@@ -350,7 +353,7 @@
         const DashboardScreen = {
             components: { TaskCard },
             props: ['tasks'],
-            emits: ['create-task', 'start-task', 'edit-task', 'delete-task', 'update-order', 'delete-multiple', 'archive-multiple'],
+            emits: ['create-task', 'start-task', 'edit-task', 'delete-task', 'update-order', 'delete-multiple', 'archive-multiple', 'view-archive'],
             setup(props, { emit }) {
                 const taskListEl = ref(null);
                 const swipedCardId = ref(null);
@@ -460,7 +463,8 @@
                             </button>
                             <div v-if="isMenuOpen" @click.stop="isMenuOpen = false" class="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl z-20 py-1">
                                 <a href="#" @click.prevent="enterReorderMode" class="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100">排序任务</a>
-                                <a href="#" @click.prevent="enterSelectMode" class="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100">选择任务</a>
+                                <a href="#" @click.prevent="enterSelectMode" class="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100">批量管理</a>
+                                <a href="#" @click.prevent="$emit('view-archive')" class="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100">查看归档</a>
                             </div>
                         </div>
                          <button v-if="mode !== 'default'" @click="exitEditModes" class="px-4 py-1.5 rounded-full font-semibold bg-slate-200 hover:bg-slate-300 text-slate-800">
@@ -538,15 +542,17 @@
                 
                 onMounted(() => {
                     initialize();
-                    sortable = new Sortable(subtaskListEl.value, {
-                        animation: 150,
-                        handle: '.drag-handle',
-                        ghostClass: 'sortable-ghost',
-                        onEnd: (evt) => {
-                            const item = subtasks.value.splice(evt.oldIndex, 1)[0];
-                            subtasks.value.splice(evt.newIndex, 0, item);
-                        }
-                    });
+                    if (subtaskListEl.value) {
+                        sortable = new Sortable(subtaskListEl.value.$el, {
+                            animation: 150,
+                            handle: '.drag-handle',
+                            ghostClass: 'sortable-ghost',
+                            onEnd: (evt) => {
+                                const item = subtasks.value.splice(evt.oldIndex, 1)[0];
+                                subtasks.value.splice(evt.newIndex, 0, item);
+                            }
+                        });
+                    }
                 });
                 
                 watch(() => props.taskToEdit, initialize);
@@ -554,7 +560,7 @@
                 const addSubtask = async () => {
                     subtasks.value.push({ id: `sub-${nextSubId++}`, text: '' });
                     await nextTick();
-                    const inputs = subtaskListEl.value.querySelectorAll('.edit-input');
+                    const inputs = document.querySelectorAll('.edit-input');
                     const lastInput = inputs[inputs.length - 1];
                     if(lastInput) lastInput.focus();
                 };
@@ -590,15 +596,13 @@
                     </header>
                     <input type="text" v-model="taskName" placeholder="为任务命名" class="w-full p-3 mb-4 border-2 border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600">
                     <div class="flex-grow overflow-y-auto bg-slate-50 p-2 rounded-lg">
-                        <div ref="subtaskListEl">
-                             <transition-group name="stagger-list" tag="div" class="space-y-2">
-                                <div v-for="(sub, index) in subtasks" :key="sub.id" class="subtask-item flex items-center bg-white py-3 px-2 rounded-md">
-                                    <span class="drag-handle text-slate-400 mr-3">☰</span>
-                                    <input type="text" v-model="sub.text" class="edit-input flex-grow bg-white p-0 m-0 border-none focus:ring-0 outline-none" placeholder="步骤描述...">
-                                    <button @click="removeSubtask(index)" class="delete-subtask-btn text-rose-500 hover:text-rose-600 font-bold px-2 ml-2">×</button>
-                                </div>
-                            </transition-group>
-                        </div>
+                        <transition-group name="stagger-list" tag="div" class="space-y-2" ref="subtaskListEl">
+                            <div v-for="(sub, index) in subtasks" :key="sub.id" class="subtask-item flex items-center bg-white py-3 px-2 rounded-md">
+                                <span class="drag-handle text-slate-400 mr-3">☰</span>
+                                <input type="text" v-model="sub.text" class="edit-input flex-grow bg-white p-0 m-0 border-none focus:ring-0 outline-none" placeholder="步骤描述...">
+                                <button @click="removeSubtask(index)" class="delete-subtask-btn text-rose-500 hover:text-rose-600 font-bold px-2 ml-2">×</button>
+                            </div>
+                        </transition-group>
                         <div @click="addSubtask" class="mt-2 flex items-center justify-center bg-transparent p-2 rounded-md border-2 border-dashed border-slate-300 hover:bg-slate-100 cursor-pointer">
                             <span class="text-slate-500 font-semibold">+ 添加步骤</span>
                         </div>
@@ -626,7 +630,7 @@
                             clearInterval(interval);
                             emit('countdown-finished');
                         }
-                    }, 400);
+                    }, 600);
                 });
 
                 return { countdownText };
@@ -651,11 +655,11 @@
                 const progressRing = ref(null);
                 const progressBarEl = ref(null);
                 const pressStartTime = ref(0);
-                const sparkles = ref([]);
+                const ripples = ref([]);
+                const isButtonPressed = ref(false);
                 let animationFrameId = null;
                 
-                const BASE_PRESS_DURATION = 800;
-                const DURATION_INCREMENT = 200;
+                const PRESS_DURATION = 800;
 
                 const ICONS = {
                     NEXT: `<svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>`,
@@ -666,28 +670,14 @@
                 const isLastStep = computed(() => currentIndex.value === props.task.subtasks.length - 1);
                 const nextButtonIcon = computed(() => isLastStep.value ? ICONS.DONE : ICONS.NEXT);
                 
-                const currentPressDuration = computed(() => {
-                    return BASE_PRESS_DURATION + (currentIndex.value * DURATION_INCREMENT);
-                });
-
                 const circumference = 2 * Math.PI * 46;
 
-                const triggerSparkles = () => {
-                    const newSparkles = [];
-                    const colors = ['#fde047', '#67e8f9', '#f9a8d4', '#86efac'];
-                    for (let i = 0; i < 20; i++) {
-                        const angle = Math.random() * Math.PI * 2;
-                        const distance = Math.random() * 50 + 40;
-                        newSparkles.push({
-                            id: `sparkle-${Date.now()}-${i}`,
-                            style: {
-                                '--color': colors[Math.floor(Math.random() * colors.length)],
-                                '--tx': `${Math.cos(angle) * distance}px`,
-                                '--ty': `${Math.sin(angle) * distance}px`,
-                            }
-                        });
-                    }
-                    sparkles.value = newSparkles;
+                const triggerRewardAnimation = () => {
+                    const newRipple = { id: Date.now() };
+                    ripples.value.push(newRipple);
+                    setTimeout(() => {
+                        ripples.value.shift();
+                    }, 600);
                 };
 
                 const resetRing = () => {
@@ -701,7 +691,7 @@
                 };
 
                 const handleNextStep = () => {
-                    triggerSparkles();
+                    triggerRewardAnimation();
                     if (currentIndex.value >= props.task.subtasks.length - 1) {
                         emit('exit', true);
                         return;
@@ -711,7 +701,7 @@
 
                 const updateRing = () => {
                     const elapsed = Date.now() - pressStartTime.value;
-                    const progress = Math.min(elapsed / currentPressDuration.value, 1);
+                    const progress = Math.min(elapsed / PRESS_DURATION, 1);
                     const offset = circumference * (1 - progress);
                     if (progressRing.value) {
                         progressRing.value.style.strokeDashoffset = offset;
@@ -736,12 +726,14 @@
 
                 const startPress = (e) => {
                     e.preventDefault();
+                    isButtonPressed.value = true;
                     pressStartTime.value = Date.now();
                     animationFrameId = requestAnimationFrame(updateRing);
                 };
 
                 const endPress = (e) => {
                     e.preventDefault();
+                    isButtonPressed.value = false;
                     cancelAnimationFrame(animationFrameId);
                     
                     if (progressBarEl.value) {
@@ -772,7 +764,7 @@
                     }
                 });
 
-                return { currentIndex, currentSubtask, nextButtonIcon, progressRing, progressBarEl, sparkles, startPress, endPress, goToStep };
+                return { currentIndex, currentSubtask, nextButtonIcon, progressRing, progressBarEl, ripples, isButtonPressed, startPress, endPress, goToStep };
             },
             template: `
                 <div class="p-5 flex flex-col h-full justify-between">
@@ -786,9 +778,9 @@
                     </div>
                     <div class="w-full">
                         <div class="flex justify-center items-center mb-6">
-                            <div class="relative w-24 h-24 transform active:scale-95 transition-transform" @mousedown="startPress" @mouseup="endPress" @mouseleave="endPress" @touchstart.prevent="startPress" @touchend.prevent="endPress">
+                            <div class="relative w-24 h-24 transition-transform" :class="{'scale-95': isButtonPressed}" @mousedown="startPress" @mouseup="endPress" @mouseleave="endPress" @touchstart.prevent="startPress" @touchend.prevent="endPress">
                                 <div class="absolute inset-0 flex items-center justify-center">
-                                    <div v-for="sparkle in sparkles" :key="sparkle.id" class="sparkle" :style="sparkle.style"></div>
+                                    <div v-for="ripple in ripples" :key="ripple.id" class="reward-ripple"></div>
                                 </div>
                                 <svg class="absolute inset-0 w-full h-full" viewBox="0 0 100 100">
                                     <circle class="text-slate-200" stroke-width="8" stroke="currentColor" fill="transparent" r="46" cx="50" cy="50" />
@@ -872,14 +864,75 @@
             `
         };
 
+        // 9. 归档任务界面
+        const ArchiveScreen = {
+            props: ['archivedTasks'],
+            emits: ['back', 'restore-multiple', 'delete-multiple'],
+            setup(props, { emit }) {
+                const selectedTasks = ref(new Set());
+
+                const toggleSelectTask = (taskId) => {
+                    if (selectedTasks.value.has(taskId)) {
+                        selectedTasks.value.delete(taskId);
+                    } else {
+                        selectedTasks.value.add(taskId);
+                    }
+                };
+
+                const restoreSelected = () => {
+                    emit('restore-multiple', Array.from(selectedTasks.value));
+                    selectedTasks.value.clear();
+                };
+
+                const deleteSelected = () => {
+                    emit('delete-multiple', Array.from(selectedTasks.value));
+                    selectedTasks.value.clear();
+                };
+
+                return { selectedTasks, toggleSelectTask, restoreSelected, deleteSelected };
+            },
+            template: `
+                <div class="p-5 flex flex-col h-full">
+                    <header class="flex justify-between items-center pt-1 pb-4">
+                        <button @click="$emit('back')" class="text-slate-500 hover:text-slate-800">&larr; 返回</button>
+                        <h1 class="text-xl font-bold text-slate-800">{{ selectedTasks.size > 0 ? \`已选择 \${selectedTasks.size} 项\` : '归档任务' }}</h1>
+                        <div class="w-12"></div>
+                    </header>
+                    
+                    <div v-if="archivedTasks.length === 0" class="h-full flex flex-col items-center justify-center text-center p-4 text-slate-500">
+                         <h2 class="text-2xl font-bold text-slate-700 mt-8">归档列表是空的</h2>
+                         <p class="mt-2 max-w-xs">这里会存放您归档的任务。</p>
+                    </div>
+                    <div v-else class="flex-grow overflow-y-auto px-2 space-y-3">
+                        <div v-for="task in archivedTasks" :key="task.id" 
+                             class="flex items-center bg-white p-4 rounded-xl border"
+                             @click="toggleSelectTask(task.id)">
+                            <input type="checkbox" :checked="selectedTasks.has(task.id)" class="w-5 h-5 rounded-full text-indigo-600 focus:ring-indigo-500 mr-4">
+                            <div>
+                                <span class="font-semibold text-slate-700">{{ task.name }}</span>
+                                <p class="text-xs text-slate-400">{{ task.subtasks.length }} 个步骤</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="p-4 mt-auto">
+                        <div class="flex justify-center gap-4">
+                             <button @click="restoreSelected" :disabled="selectedTasks.size === 0" class="px-6 py-3 rounded-lg font-semibold text-slate-700 bg-slate-200 hover:bg-slate-300 disabled:opacity-50">恢复</button>
+                             <button @click="deleteSelected" :disabled="selectedTasks.size === 0" class="px-6 py-3 rounded-lg font-semibold text-white bg-rose-500 hover:bg-rose-600 disabled:opacity-50">删除</button>
+                        </div>
+                    </div>
+                </div>
+            `
+        };
+
 
         // --- 根组件 (App) ---
         const App = {
-            components: { SplashScreen, DashboardScreen, EditorScreen, GetReadyScreen, FocusScreen, AllDoneScreen, ConfirmModal },
+            components: { SplashScreen, DashboardScreen, EditorScreen, GetReadyScreen, FocusScreen, AllDoneScreen, ConfirmModal, ArchiveScreen },
             setup() {
                 // --- State ---
                 const tasks = ref([]);
-                const archivedTasks = ref([]); // New state for archived tasks
+                const archivedTasks = ref([]);
                 const currentView = ref('splash'); 
                 const viewDirection = ref('forward');
                 const activeTask = ref(null);
@@ -927,12 +980,16 @@
                     navigate('dashboard', 'backward');
                 };
                 
-                const showDeleteConfirm = (taskId, isMultiple = false) => {
+                const showDeleteConfirm = (taskId, isMultiple = false, fromArchive = false) => {
                     const taskIds = Array.isArray(taskId) ? taskId : [taskId];
                     confirmModalState.text = isMultiple ? `你确定要永久删除这 ${taskIds.length} 个任务吗？` : '你确定要永久删除这个任务吗？';
                     confirmModalState.onConfirm = () => {
                         const idsToDelete = new Set(taskIds);
-                        tasks.value = tasks.value.filter(t => !idsToDelete.has(t.id));
+                        if (fromArchive) {
+                            archivedTasks.value = archivedTasks.value.filter(t => !idsToDelete.has(t.id));
+                        } else {
+                            tasks.value = tasks.value.filter(t => !idsToDelete.has(t.id));
+                        }
                         saveTasks();
                         confirmModalState.visible = false;
                     };
@@ -959,7 +1016,7 @@
                 };
 
                 const handleDeleteMultiple = (taskIds) => {
-                    showDeleteConfirm(taskIds, true);
+                    showDeleteConfirm(taskIds, true, currentView.value === 'archive');
                 };
 
                 const handleArchiveMultiple = (taskIds) => {
@@ -970,8 +1027,17 @@
                     saveTasks();
                 };
 
+                const handleRestoreMultiple = (taskIds) => {
+                    const idsToRestore = new Set(taskIds);
+                    const tasksToRestore = archivedTasks.value.filter(t => idsToRestore.has(t.id));
+                    tasks.value.push(...tasksToRestore);
+                    archivedTasks.value = archivedTasks.value.filter(t => !idsToRestore.has(t.id));
+                    saveTasks();
+                };
+
                 return {
                     tasks,
+                    archivedTasks,
                     currentView,
                     viewDirection,
                     activeTask,
@@ -985,7 +1051,8 @@
                     handleFocusExit,
                     handleUpdateTaskOrder,
                     handleDeleteMultiple,
-                    handleArchiveMultiple
+                    handleArchiveMultiple,
+                    handleRestoreMultiple
                 };
             },
             template: `
@@ -995,6 +1062,7 @@
                         :key="currentView"
                         class="absolute inset-0"
                         :tasks="tasks"
+                        :archivedTasks="archivedTasks"
                         :task="activeTask"
                         :taskToEdit="activeTask"
                         :taskName="activeTask?.name"
@@ -1011,6 +1079,8 @@
                         @update-order="handleUpdateTaskOrder"
                         @delete-multiple="handleDeleteMultiple"
                         @archive-multiple="handleArchiveMultiple"
+                        @view-archive="navigate('archive', 'forward')"
+                        @restore-multiple="handleRestoreMultiple"
                     />
                 </transition>
 
@@ -1031,6 +1101,7 @@
         app.component('get-ready-screen', GetReadyScreen);
         app.component('focus-screen', FocusScreen);
         app.component('all-done-screen', AllDoneScreen);
+        app.component('archive-screen', ArchiveScreen);
         app.mount('#app');
 
     </script>
