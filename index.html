@@ -3,8 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>任务隧道视野 (Vue动画重构版)</title>
+    <title>任务隧道视野</title>
     <meta name="theme-color" content="#f8fafc">
+    
+    <!-- PWA 配置 -->
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icons/icon-192x192.png">
+
 
     <!-- 引入Vue.js和Tailwind CSS -->
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
@@ -100,6 +105,10 @@
         }
         @keyframes pop-in {
             to { opacity: 1; transform: scale(1); }
+        }
+        .all-done-fade-out {
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
         }
 
 
@@ -209,6 +218,15 @@
         @keyframes stroke { 100% { stroke-dashoffset: 0; } }
         @keyframes scale { 0%, 100% { transform: none; } 50% { transform: scale3d(1.1, 1.1, 1); } }
         @keyframes fill { 100% { box-shadow: inset 0px 0px 0px 50px #10b981; } }
+
+        /* PWA 更新提示样式 */
+        #update-toast {
+            transform: translateY(200%);
+            transition: transform 0.4s ease-in-out;
+        }
+        #update-toast.show {
+            transform: translateY(0);
+        }
     </style>
 </head>
 <body class="flex items-center justify-center min-h-screen">
@@ -216,10 +234,17 @@
     <div id="app" class="w-full max-w-sm h-[85vh] max-h-[800px] mx-auto bg-white rounded-3xl shadow-lg flex flex-col relative overflow-hidden [perspective:1000px]">
     </div>
 
+    <!-- PWA 更新提示UI -->
+    <div id="update-toast" class="fixed bottom-4 right-4 z-50 bg-slate-800 text-white p-4 rounded-lg shadow-lg flex items-center gap-4">
+        <p>发现新版本！</p>
+        <button id="update-button" class="px-4 py-1 bg-indigo-500 rounded-md hover:bg-indigo-600">刷新</button>
+    </div>
+
+
     <script type="module">
         const { createApp, ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } = Vue;
 
-        // --- 组件定义 ---
+        // --- 组件定义 (此处省略所有组件定义代码，与之前版本相同) ---
 
         // 1. 启动画面组件
         const SplashScreen = {
@@ -907,6 +932,7 @@
                 const fillElement = ref(null);
                 const isCompleted = ref(false);
                 const encouragement = ref('');
+                const isFadingOut = ref(false);
                 
                 let pressStartTime = 0;
                 let animationFrameId = null;
@@ -945,7 +971,6 @@
                     isCompleted.value = true;
                     if (navigator.vibrate) navigator.vibrate([100, 30, 100]);
                     
-                    // Trigger confetti
                     const newConfettis = [];
                     const colors = ['#fde047', '#67e8f9', '#f9a8d4', '#86efac', '#fca5a5', '#a78bfa'];
                     for (let i = 0; i < 100; i++) {
@@ -960,6 +985,10 @@
                         });
                     }
                     confettis.value = newConfettis;
+
+                    setTimeout(() => {
+                        isFadingOut.value = true;
+                    }, 2000);
 
                     setTimeout(() => {
                         emit('back-to-dash');
@@ -1007,10 +1036,13 @@
                    encouragement.value = ENCOURAGEMENTS[Math.floor(Math.random() * ENCOURAGEMENTS.length)];
                 });
 
-                return { confettis, isButtonPressed, pressProgress, fillElement, isCompleted, encouragement, startPress, endPress };
+                return { confettis, isButtonPressed, pressProgress, fillElement, isCompleted, encouragement, isFadingOut, startPress, endPress };
             },
             template: `
-                <div class="p-5 flex flex-col h-full justify-center items-center text-center overflow-hidden all-done-content">
+                <div 
+                    class="p-5 flex flex-col h-full justify-center items-center text-center overflow-hidden all-done-content"
+                    :class="{ 'all-done-fade-out': isFadingOut }"
+                >
                     <div class="absolute inset-0 pointer-events-none">
                         <div v-for="c in confettis" :key="c.id" class="confetti" :style="c.style"></div>
                     </div>
@@ -1312,6 +1344,42 @@
         app.component('all-done-screen', AllDoneScreen);
         app.component('archive-screen', ArchiveScreen);
         app.mount('#app');
+
+
+        // --- PWA Service Worker 注册和更新逻辑 ---
+        if ('serviceWorker' in navigator) {
+            let newWorker;
+            
+            navigator.serviceWorker.register('/sw.js').then(reg => {
+                reg.addEventListener('updatefound', () => {
+                    // 发现一个正在安装的新的 service worker
+                    newWorker = reg.installing;
+                    newWorker.addEventListener('statechange', () => {
+                        // service worker 的状态改变
+                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                            // 新的 service worker 已经安装但还未激活
+                            // 这时我们可以提示用户有新版本可用
+                            const updateToast = document.getElementById('update-toast');
+                            updateToast.classList.add('show');
+                        }
+                    });
+                });
+            });
+
+            const updateButton = document.getElementById('update-button');
+            updateButton.addEventListener('click', () => {
+                newWorker.postMessage({ action: 'skipWaiting' });
+                const updateToast = document.getElementById('update-toast');
+                updateToast.classList.remove('show');
+            });
+
+            let refreshing;
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                if (refreshing) return;
+                window.location.reload();
+                refreshing = true;
+            });
+        }
 
     </script>
 </body>
