@@ -244,7 +244,7 @@
     <script type="module">
         const { createApp, ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } = Vue;
 
-        // --- 组件定义 (此处省略所有组件定义代码，与之前版本相同) ---
+        // --- 组件定义 ---
 
         // 1. 启动画面组件
         const SplashScreen = {
@@ -264,10 +264,10 @@
             `
         };
 
-        // 2. 任务卡片子组件
+        // 2. 任务/合集卡片子组件 (已更新)
         const TaskCard = {
             props: ['task', 'swipedState', 'mode', 'isSelected'],
-            emits: ['start', 'edit', 'delete', 'swipe', 'toggle-select'],
+            emits: ['start', 'edit', 'delete', 'swipe', 'toggle-select', 'open-group'],
             setup(props, { emit }) {
                 const cardContent = ref(null);
                 const cardWrapper = ref(null);
@@ -279,18 +279,27 @@
                 const PARTICLE_COLORS = ['#fde047', '#67e8f9', '#86efac', '#fca5a5'];
                 let lastParticleTime = 0;
 
+                const isGroup = computed(() => props.task.type === 'group');
+
                 const gesture = reactive({
                     startX: 0, startY: 0,
                     isDragging: false,
                     isPressing: false,
+                    isClick: true,
                 });
 
                 const onPointerDown = (e) => {
-                    if (props.mode !== 'default' || e.button === 2) return;
+                    // In select mode, we only want click events, not long press.
+                    if (props.mode === 'select') {
+                        gesture.isClick = true;
+                        return;
+                    }
+                    if (isGroup.value || props.mode !== 'default' || e.button === 2) return;
                     
                     gesture.startX = e.clientX || e.touches[0].clientX;
                     gesture.startY = e.clientY || e.touches[0].clientY;
                     gesture.isPressing = true;
+                    gesture.isClick = true;
                     pressStartTime = Date.now();
 
                     if(cardWrapper.value) cardWrapper.value.classList.add('long-press-active');
@@ -313,7 +322,6 @@
                     particle.style.setProperty('--color', color);
                     particle.style.setProperty('--x', `${x}px`);
                     particle.style.setProperty('--y', `${y}px`);
-                    
                     particle.style.left = `${progress}%`;
                     
                     if(fillElement.value) fillElement.value.appendChild(particle);
@@ -341,12 +349,17 @@
                 };
 
                 const onPointerMove = (e) => {
+                    if (props.mode === 'select') return;
                     if (!gesture.isPressing && !gesture.isDragging) return;
 
                     const currentX = e.clientX || e.touches[0].clientX;
                     const currentY = e.clientY || e.touches[0].clientY;
                     const diffX = currentX - gesture.startX;
                     const diffY = currentY - gesture.startY;
+                    
+                    if (Math.abs(diffX) > 10 || Math.abs(diffY) > 10) {
+                        gesture.isClick = false;
+                    }
 
                     if (!gesture.isDragging) {
                         if (Math.abs(diffX) > 20 && Math.abs(diffX) > Math.abs(diffY)) {
@@ -357,11 +370,9 @@
                             if(cardWrapper.value) cardWrapper.value.classList.remove('long-press-active');
                             emit('swipe', { id: props.task.id, state: null });
                         } else if (Math.abs(diffY) > 10) {
-                            // Allow vertical scroll
                             resetGesture();
                             return;
                         } else {
-                            // Not a swipe yet, let long press continue
                             return;
                         }
                     }
@@ -380,7 +391,16 @@
                 };
 
                 const onPointerUp = (e) => {
-                    if (gesture.isDragging) {
+                    // In select mode, a click toggles selection.
+                    if (props.mode === 'select') {
+                        emit('toggle-select', props.task.id);
+                    }
+                    // In default mode, a click on a group opens it.
+                    else if (isGroup.value && gesture.isClick && props.mode === 'default') {
+                        emit('open-group', props.task);
+                    }
+                    // Handle swipe release
+                    else if (gesture.isDragging) {
                         const currentTransform = new DOMMatrix(getComputedStyle(cardContent.value).transform).m41;
                         cardContent.value.style.transition = 'transform 0.3s ease';
                         if (currentTransform < -36) {
@@ -401,6 +421,7 @@
                     if(cardWrapper.value) cardWrapper.value.classList.remove('long-press-active');
                     gesture.isPressing = false;
                     gesture.isDragging = false;
+                    gesture.isClick = true;
                     pressProgress.value = 0;
                     cancelAnimationFrame(animationFrameId);
                     document.removeEventListener('mousemove', onPointerMove);
@@ -418,7 +439,23 @@
                     }
                 });
 
-                return { cardContent, cardWrapper, fillElement, pressProgress, onPointerDown };
+                const subtext = computed(() => {
+                    if (isGroup.value) {
+                        const count = props.task.children?.length || 0;
+                        return `${count} 个任务`;
+                    }
+                    const count = props.task.subtasks?.length || 0;
+                    return `${count} 个步骤`;
+                });
+
+                const cardCursorClass = computed(() => {
+                    if (props.mode === 'select') return 'cursor-pointer';
+                    if (props.mode === 'default' && isGroup.value) return 'cursor-pointer';
+                    if (props.mode === 'default' && !isGroup.value) return 'cursor-grab';
+                    return '';
+                });
+
+                return { cardContent, cardWrapper, fillElement, pressProgress, onPointerDown, onPointerUp, isGroup, subtext, cardCursorClass };
             },
             template: `
                 <div class="task-card-wrapper" ref="cardWrapper">
@@ -431,21 +468,29 @@
                     <div 
                         ref="cardContent"
                         class="task-card-content p-4 border flex items-center justify-between"
+                        :class="cardCursorClass"
                         @mousedown="onPointerDown"
                         @touchstart="onPointerDown"
+                        @mouseup="onPointerUp"
+                        @touchend="onPointerUp"
                     >
-                        <div v-if="mode === 'select'" class="mr-4">
-                            <input type="checkbox" :checked="isSelected" @change="$emit('toggle-select', task.id)" class="w-5 h-5 rounded-full text-indigo-600 focus:ring-indigo-500">
+                        <div v-if="mode === 'select'" class="mr-4 pointer-events-none">
+                            <input type="checkbox" :checked="isSelected" class="w-5 h-5 rounded-full text-indigo-600 focus:ring-indigo-500">
                         </div>
                         <div v-if="mode === 'reorder'" class="reorder-handle mr-4 text-slate-400">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
                         </div>
-                        <div class="long-press-fill" ref="fillElement" :style="{ width: pressProgress + '%' }"></div>
-                        <div class="relative z-10 flex-grow">
-                            <span class="font-semibold text-slate-700">{{ task.name }}</span>
-                            <p class="text-xs text-slate-400">{{ task.subtasks.length }} 个步骤</p>
+                        
+                        <div v-if="isGroup && mode === 'default'" class="mr-4 text-indigo-500">
+                             <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
                         </div>
-                        <svg v-if="mode === 'default'" xmlns="http://www.w3.org/2000/svg" class="relative z-10 h-6 w-6 text-slate-400 swipe-affordance-icon" fill="none" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
+
+                        <div class="long-press-fill" ref="fillElement" :style="{ width: pressProgress + '%' }"></div>
+                        <div class="relative z-10 flex-grow pointer-events-none">
+                            <span class="font-semibold text-slate-700">{{ task.name }}</span>
+                            <p class="text-xs text-slate-400">{{ subtext }}</p>
+                        </div>
+                        <svg v-if="mode === 'default'" xmlns="http://www.w3.org/2000/svg" class="relative z-10 h-6 w-6 text-slate-400 swipe-affordance-icon pointer-events-none" fill="none" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
                     </div>
                 </div>
             `
@@ -455,7 +500,7 @@
         const DashboardScreen = {
             components: { TaskCard },
             props: ['tasks'],
-            emits: ['create-task', 'start-task', 'edit-task', 'delete-task', 'update-order', 'delete-multiple', 'archive-multiple', 'view-archive'],
+            emits: ['create-task', 'start-task', 'edit-task', 'delete-task', 'open-group', 'update-order', 'delete-multiple', 'archive-multiple', 'group-multiple', 'view-archive'],
             setup(props, { emit }) {
                 const taskListEl = ref(null);
                 const swipedCardId = ref(null);
@@ -508,6 +553,11 @@
                     exitEditModes();
                 };
 
+                const groupSelected = () => {
+                    emit('group-multiple', Array.from(selectedTasks.value));
+                    exitEditModes();
+                };
+
                 const initSortable = () => {
                     if (sortable) sortable.destroy();
                     if (taskListEl.value && mode.value === 'reorder') {
@@ -543,7 +593,7 @@
                     }
                 });
 
-                return { taskListEl, swipedCardId, swipedCardState, isMenuOpen, mode, selectedTasks, handleSwipe, enterReorderMode, enterSelectMode, exitEditModes, toggleSelectTask, deleteSelected, archiveSelected, beforeEnter, enter };
+                return { taskListEl, swipedCardId, swipedCardState, isMenuOpen, mode, selectedTasks, handleSwipe, enterReorderMode, enterSelectMode, exitEditModes, toggleSelectTask, deleteSelected, archiveSelected, groupSelected, beforeEnter, enter };
             },
             template: `
                 <div class="p-5 flex flex-col h-full" @click="handleSwipe({id: null, state: null}); isMenuOpen = false;">
@@ -592,6 +642,7 @@
                                 @start="$emit('start-task', $event)"
                                 @edit="$emit('edit-task', $event)"
                                 @delete="$emit('delete-task', $event)"
+                                @open-group="$emit('open-group', $event)"
                                 @swipe="handleSwipe"
                                 @toggle-select="toggleSelectTask"
                             />
@@ -600,15 +651,16 @@
 
                     <!-- Footer -->
                     <div class="p-4 mt-auto">
-                        <transition name="depth-forward">
-                        <div v-if="mode === 'select'" class="flex justify-center gap-4">
-                             <button @click="archiveSelected" :disabled="selectedTasks.size === 0" class="px-6 py-3 rounded-lg font-semibold text-slate-700 bg-slate-200 hover:bg-slate-300 disabled:opacity-50">归档</button>
-                             <button @click="deleteSelected" :disabled="selectedTasks.size === 0" class="px-6 py-3 rounded-lg font-semibold text-white bg-rose-500 hover:bg-rose-600 disabled:opacity-50">删除</button>
-                        </div>
-                        <button v-else @click.stop="$emit('create-task')" class="w-full bg-indigo-600 text-white rounded-xl py-4 text-lg font-semibold flex items-center justify-center hover:bg-indigo-700 transition-colors shadow-lg" :class="{'breathing-button': tasks.length === 0}">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
-                            创建新任务流
-                        </button>
+                        <transition name="depth-forward" mode="out-in">
+                            <div v-if="mode === 'select'" class="flex justify-center gap-2">
+                                <button @click="groupSelected" :disabled="selectedTasks.size < 2" class="px-5 py-3 rounded-lg font-semibold text-white bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed">成组</button>
+                                <button @click="archiveSelected" :disabled="selectedTasks.size === 0" class="px-5 py-3 rounded-lg font-semibold text-slate-700 bg-slate-200 hover:bg-slate-300 disabled:opacity-50">归档</button>
+                                <button @click="deleteSelected" :disabled="selectedTasks.size === 0" class="px-5 py-3 rounded-lg font-semibold text-white bg-rose-500 hover:bg-rose-600 disabled:opacity-50">删除</button>
+                            </div>
+                            <button v-else @click.stop="$emit('create-task')" class="w-full bg-indigo-600 text-white rounded-xl py-4 text-lg font-semibold flex items-center justify-center hover:bg-indigo-700 transition-colors shadow-lg" :class="{'breathing-button': tasks.length === 0}">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+                                创建新任务流
+                            </button>
                         </transition>
                     </div>
                 </div>
@@ -626,16 +678,25 @@
                 let sortable = null;
                 let nextSubId = 0;
 
-                const editorTitle = computed(() => props.taskToEdit ? '编辑任务' : '新建任务');
+                const isGroup = computed(() => props.taskToEdit?.type === 'group');
+                const editorTitle = computed(() => {
+                    if (!props.taskToEdit) return '新建任务';
+                    return isGroup.value ? '编辑合集名称' : '编辑任务';
+                });
 
                 const initialize = () => {
                     nextSubId = 0;
                     if (props.taskToEdit) {
                         taskName.value = props.taskToEdit.name;
-                        subtasks.value = JSON.parse(JSON.stringify(props.taskToEdit.subtasks)).map(sub => ({
-                            ...sub,
-                            id: `sub-${nextSubId++}`
-                        }));
+                        // Only load subtasks if it's a normal task
+                        if (!isGroup.value) {
+                             subtasks.value = JSON.parse(JSON.stringify(props.taskToEdit.subtasks || [])).map(sub => ({
+                                ...sub,
+                                id: `sub-${nextSubId++}`
+                            }));
+                        } else {
+                            subtasks.value = [];
+                        }
                     } else {
                         taskName.value = '';
                         subtasks.value = [];
@@ -644,7 +705,7 @@
                 
                 onMounted(() => {
                     initialize();
-                    if (subtaskListEl.value) {
+                    if (subtaskListEl.value && !isGroup.value) {
                         sortable = new Sortable(subtaskListEl.value.$el, {
                             animation: 150,
                             handle: '.drag-handle',
@@ -657,7 +718,7 @@
                     }
                 });
                 
-                watch(() => props.taskToEdit, initialize);
+                watch(() => props.taskToEdit, initialize, { immediate: true });
 
                 const addSubtask = async () => {
                     subtasks.value.push({ id: `sub-${nextSubId++}`, text: '' });
@@ -672,22 +733,39 @@
                 };
 
                 const saveTask = () => {
-                    if (!taskName.value.trim()) { alert('请为任务命名'); return; }
-                    const finalSubtasks = subtasks.value
-                        .filter(s => s.text.trim() !== '')
-                        .map(s => ({ text: s.text }));
+                    if (!taskName.value.trim()) { 
+                        alert(isGroup.value ? '请为合集命名' : '请为任务命名'); 
+                        return; 
+                    }
+                    
+                    let savedTask;
 
-                    if (finalSubtasks.length === 0) { alert('请至少添加一个步骤'); return; }
+                    if (isGroup.value) {
+                        savedTask = {
+                            ...props.taskToEdit,
+                            name: taskName.value.trim(),
+                        };
+                    } else {
+                        const finalSubtasks = subtasks.value
+                            .filter(s => s.text.trim() !== '')
+                            .map(s => ({ text: s.text }));
 
-                    const savedTask = {
-                        id: props.taskToEdit ? props.taskToEdit.id : Date.now(),
-                        name: taskName.value.trim(),
-                        subtasks: finalSubtasks
-                    };
+                        if (finalSubtasks.length === 0) { alert('请至少添加一个步骤'); return; }
+
+                        savedTask = {
+                            id: props.taskToEdit ? props.taskToEdit.id : Date.now(),
+                            type: 'task',
+                            name: taskName.value.trim(),
+                            subtasks: finalSubtasks
+                        };
+                         if(props.taskToEdit) {
+                            savedTask.id = props.taskToEdit.id;
+                         }
+                    }
                     emit('save', savedTask);
                 };
 
-                return { taskName, subtasks, editorTitle, addSubtask, removeSubtask, saveTask, subtaskListEl };
+                return { taskName, subtasks, editorTitle, isGroup, addSubtask, removeSubtask, saveTask, subtaskListEl };
             },
             template: `
                 <div class="p-5 flex flex-col h-full">
@@ -696,8 +774,9 @@
                         <h2 class="text-xl font-bold text-slate-800">{{ editorTitle }}</h2>
                         <button @click="saveTask" class="bg-emerald-500 text-white px-4 py-1.5 rounded-full font-semibold hover:bg-emerald-600">完成</button>
                     </header>
-                    <input type="text" v-model="taskName" placeholder="为任务命名" class="w-full p-3 mb-4 border-2 border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600">
-                    <div class="flex-grow overflow-y-auto bg-slate-50 p-2 rounded-lg">
+                    <input type="text" v-model="taskName" :placeholder="isGroup ? '为合集命名' : '为任务命名'" class="w-full p-3 mb-4 border-2 border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600">
+                    
+                    <div v-if="!isGroup" class="flex-grow overflow-y-auto bg-slate-50 p-2 rounded-lg">
                         <transition-group name="stagger-list" tag="div" class="space-y-2" ref="subtaskListEl">
                             <div v-for="(sub, index) in subtasks" :key="sub.id" class="subtask-item flex items-center bg-white py-3 px-2 rounded-md">
                                 <span class="drag-handle text-slate-400 mr-3">☰</span>
@@ -708,6 +787,9 @@
                         <div @click="addSubtask" class="mt-2 flex items-center justify-center bg-transparent p-2 rounded-md border-2 border-dashed border-slate-300 hover:bg-slate-100 cursor-pointer">
                             <span class="text-slate-500 font-semibold">+ 添加步骤</span>
                         </div>
+                    </div>
+                     <div v-else class="flex-grow flex items-center justify-center text-slate-400">
+                        <p>你正在编辑合集名称。</p>
                     </div>
                 </div>
             `
@@ -1165,23 +1247,153 @@
                 </div>
             `
         };
+        
+        // 10. 命名弹窗
+        const GroupNameModal = {
+            props: ['visible'],
+            emits: ['confirm', 'cancel'],
+            setup(props, { emit }) {
+                const groupName = ref('');
+
+                const confirm = () => {
+                    emit('confirm', groupName.value);
+                    groupName.value = '';
+                };
+
+                const cancel = () => {
+                    emit('cancel');
+                    groupName.value = '';
+                }
+
+                return { groupName, confirm, cancel };
+            },
+            template: `
+                <transition name="spring-modal">
+                    <div v-if="visible" @click.self="cancel" class="absolute inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+                        <div class="modal-box bg-white p-6 rounded-2xl w-[90%] max-w-xs text-center shadow-xl">
+                            <h3 class="text-lg font-bold text-slate-800 mb-4">为新合集命名</h3>
+                            <input type="text" v-model="groupName" placeholder="例如：健身" class="w-full p-3 mb-6 border-2 border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600">
+                            <div class="flex justify-center gap-4">
+                                <button @click="cancel" class="px-6 py-2 rounded-lg bg-slate-200 text-slate-700 hover:bg-slate-300">取消</button>
+                                <button @click="confirm" class="px-6 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">创建</button>
+                            </div>
+                        </div>
+                    </div>
+                </transition>
+            `
+        };
+        
+        // 11. 合集视图 (新)
+        const GroupViewScreen = {
+            components: { TaskCard },
+            props: ['group'],
+            emits: ['back', 'start-task', 'edit-task', 'delete-task'],
+             setup(props, { emit }) {
+                const swipedCardId = ref(null);
+                const swipedCardState = ref(null);
+
+                const handleSwipe = ({ id, state }) => {
+                    swipedCardId.value = id;
+                    swipedCardState.value = state;
+                };
+
+                const beforeEnter = (el) => {
+                    el.style.opacity = 0;
+                    el.style.transform = 'translateY(20px)';
+                }
+                const enter = (el, done) => {
+                    const delay = el.dataset.index * 50;
+                    setTimeout(() => {
+                        el.style.transition = 'all 0.4s ease';
+                        el.style.opacity = 1;
+                        el.style.transform = 'translateY(0)';
+                        done();
+                    }, delay);
+                }
+
+                return { swipedCardId, swipedCardState, handleSwipe, beforeEnter, enter };
+            },
+            template: `
+                <div class="p-5 flex flex-col h-full" @click="handleSwipe({id: null, state: null})">
+                    <!-- Header -->
+                    <header class="flex justify-between items-center pt-1 pb-4">
+                        <button @click="$emit('back')" class="text-slate-500 hover:text-slate-800">&larr; 返回</button>
+                        <h1 class="text-xl font-bold text-slate-800">{{ group?.name }}</h1>
+                        <div class="w-12"></div>
+                    </header>
+
+                    <!-- Task List -->
+                    <div v-if="!group?.children || group.children.length === 0" class="h-full flex flex-col items-center justify-center text-center p-4 text-slate-500">
+                         <h2 class="text-2xl font-bold text-slate-700 mt-8">这个合集是空的</h2>
+                         <p class="mt-2 max-w-xs">你可以将任务移动到这里。</p>
+                    </div>
+                    <div v-else class="flex-grow overflow-y-auto px-2 space-y-3">
+                        <transition-group @before-enter="beforeEnter" @enter="enter">
+                            <task-card 
+                                v-for="(task, index) in group.children" 
+                                :key="task.id" 
+                                :data-index="index"
+                                :task="task"
+                                :swipedState="swipedCardId === task.id ? swipedCardState : null"
+                                mode="default"
+                                @start="$emit('start-task', $event)"
+                                @edit="$emit('edit-task', $event)"
+                                @delete="$emit('delete-task', $event)"
+                                @swipe="handleSwipe"
+                            />
+                        </transition-group>
+                    </div>
+                </div>
+            `
+        };
 
 
         // --- 根组件 (App) ---
         const App = {
-            components: { SplashScreen, DashboardScreen, EditorScreen, GetReadyScreen, FocusScreen, AllDoneScreen, ConfirmModal, ArchiveScreen },
+            components: { SplashScreen, DashboardScreen, GroupViewScreen, EditorScreen, GetReadyScreen, FocusScreen, AllDoneScreen, ConfirmModal, ArchiveScreen, GroupNameModal },
             setup() {
                 // --- State ---
                 const tasks = ref([]);
                 const archivedTasks = ref([]);
                 const currentView = ref('splash'); 
                 const viewDirection = ref('forward');
-                const activeTask = ref(null);
+                const activeTask = ref(null); // Can be a task or a group
                 const confirmModalState = reactive({
                     visible: false,
                     text: '',
                     onConfirm: null
                 });
+                const groupNameModalState = reactive({
+                    visible: false,
+                    taskIds: []
+                });
+
+                // --- Recursive Helpers ---
+                const findAndRun = (items, itemId, action) => {
+                    for (let i = 0; i < items.length; i++) {
+                        if (items[i].id === itemId) {
+                            action(items, i);
+                            return true;
+                        }
+                        if (items[i].type === 'group' && items[i].children) {
+                            if (findAndRun(items[i].children, itemId, action)) {
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                };
+
+                const findItem = (items, itemId) => {
+                    for (const item of items) {
+                        if (item.id === itemId) return item;
+                        if (item.type === 'group' && item.children) {
+                            const found = findItem(item.children, itemId);
+                            if (found) return found;
+                        }
+                    }
+                    return null;
+                };
 
                 // --- Data Persistence ---
                 const loadTasks = () => {
@@ -1202,35 +1414,35 @@
                     viewDirection.value = direction;
                     activeTask.value = task;
                     currentView.value = view;
-                    if (view === 'dashboard' && !sessionStorage.getItem('hasSeenSplashVue')) {
-                         sessionStorage.setItem('hasSeenSplashVue', 'true');
-                    }
                 };
 
                 // --- Event Handlers ---
                 const handleCreateTask = () => navigate('editor', 'forward');
-                const handleEditTask = (task) => navigate('editor', 'forward', task);
+                
+                const handleEditTask = (task) => {
+                    navigate('editor', 'forward', task);
+                };
+                
                 const handleSaveTask = (savedTask) => {
-                    const index = tasks.value.findIndex(t => t.id === savedTask.id);
-                    if (index > -1) {
-                        tasks.value[index] = savedTask;
-                    } else {
+                    const action = (items, index) => { items[index] = savedTask; };
+                    
+                    if (!findAndRun(tasks.value, savedTask.id, action)) {
+                        // It's a new task, add to root
                         tasks.value.push(savedTask);
                     }
                     saveTasks();
                     navigate('dashboard', 'backward');
                 };
                 
-                const showDeleteConfirm = (taskId, isMultiple = false, fromArchive = false) => {
-                    const taskIds = Array.isArray(taskId) ? taskId : [taskId];
-                    confirmModalState.text = isMultiple ? `你确定要永久删除这 ${taskIds.length} 个任务吗？` : '你确定要永久删除这个任务吗？';
+                const showDeleteConfirm = (itemId) => {
+                    const item = findItem(tasks.value, itemId) || findItem(archivedTasks.value, itemId);
+                    if (!item) return;
+
+                    confirmModalState.text = `你确定要永久删除“${item.name}”吗？` + (item.type === 'group' ? ' 这将删除合集内的所有任务。' : '');
                     confirmModalState.onConfirm = () => {
-                        const idsToDelete = new Set(taskIds);
-                        if (fromArchive) {
-                            archivedTasks.value = archivedTasks.value.filter(t => !idsToDelete.has(t.id));
-                        } else {
-                            tasks.value = tasks.value.filter(t => !idsToDelete.has(t.id));
-                        }
+                        const deleteAction = (items, index) => items.splice(index, 1);
+                        findAndRun(tasks.value, itemId, deleteAction);
+                        findAndRun(archivedTasks.value, itemId, deleteAction);
                         saveTasks();
                         confirmModalState.visible = false;
                     };
@@ -1238,17 +1450,31 @@
                 };
 
                 const handleStartTask = (taskId) => {
-                    const task = tasks.value.find(t => t.id === taskId);
-                    if (task) navigate('get-ready', 'forward', task);
+                    const task = findItem(tasks.value, taskId);
+                    if (task && task.type === 'task') {
+                        navigate('get-ready', 'forward', task);
+                    }
                 };
                 
                 const handleFocusExit = (completed) => {
                     if (completed) {
                         navigate('all-done', 'forward', activeTask.value);
                     } else {
+                        // If exiting from a task within a group, we might want to go back to the group view.
+                        // For simplicity now, always go to dashboard.
                         navigate('dashboard', 'backward');
                     }
                 };
+                
+                const handleBackToDashboard = () => {
+                    const taskToDelete = activeTask.value;
+                    if (taskToDelete) {
+                        const deleteAction = (items, index) => items.splice(index, 1);
+                        findAndRun(tasks.value, taskToDelete.id, deleteAction);
+                    }
+                    saveTasks();
+                    navigate('dashboard', 'backward');
+                }
 
                 const handleUpdateTaskOrder = ({ oldIndex, newIndex }) => {
                     const movedItem = tasks.value.splice(oldIndex, 1)[0];
@@ -1257,7 +1483,13 @@
                 };
 
                 const handleDeleteMultiple = (taskIds) => {
-                    showDeleteConfirm(taskIds, true, currentView.value === 'archive');
+                    // This needs a more complex confirmation modal, for now, we disable it for groups.
+                    // For simplicity, let's just delete them one by one.
+                    taskIds.forEach(id => {
+                        const deleteAction = (items, index) => items.splice(index, 1);
+                        findAndRun(tasks.value, id, deleteAction) || findAndRun(archivedTasks.value, id, deleteAction);
+                    });
+                    saveTasks();
                 };
 
                 const handleArchiveMultiple = (taskIds) => {
@@ -1275,6 +1507,40 @@
                     archivedTasks.value = archivedTasks.value.filter(t => !idsToRestore.has(t.id));
                     saveTasks();
                 };
+                
+                const handleShowGroupModal = (taskIds) => {
+                    if (taskIds.length < 2) return;
+                    groupNameModalState.taskIds = taskIds;
+                    groupNameModalState.visible = true;
+                };
+
+                const handleConfirmGroup = (newGroupName) => {
+                    groupNameModalState.visible = false;
+                    if (!newGroupName || !newGroupName.trim()) return;
+
+                    const idsToGroup = new Set(groupNameModalState.taskIds);
+                    const tasksToGroup = tasks.value.filter(t => idsToGroup.has(t.id));
+
+                    if (tasksToGroup.some(t => t.type === 'group')) {
+                        alert("不能将合集再次分组。");
+                        return;
+                    }
+
+                    const newGroup = {
+                        id: Date.now(),
+                        type: 'group',
+                        name: newGroupName.trim(),
+                        children: tasksToGroup
+                    };
+
+                    tasks.value = tasks.value.filter(t => !idsToGroup.has(t.id));
+                    tasks.value.push(newGroup);
+                    saveTasks();
+                };
+                
+                const handleOpenGroup = (group) => {
+                    navigate('group-view', 'forward', group);
+                };
 
                 return {
                     tasks,
@@ -1283,6 +1549,7 @@
                     viewDirection,
                     activeTask,
                     confirmModalState,
+                    groupNameModalState,
                     navigate,
                     handleCreateTask,
                     handleEditTask,
@@ -1290,10 +1557,14 @@
                     showDeleteConfirm,
                     handleStartTask,
                     handleFocusExit,
+                    handleBackToDashboard,
                     handleUpdateTaskOrder,
                     handleDeleteMultiple,
                     handleArchiveMultiple,
-                    handleRestoreMultiple
+                    handleRestoreMultiple,
+                    handleShowGroupModal,
+                    handleConfirmGroup,
+                    handleOpenGroup
                 };
             },
             template: `
@@ -1304,6 +1575,7 @@
                         class="absolute inset-0"
                         :tasks="tasks"
                         :archivedTasks="archivedTasks"
+                        :group="activeTask"
                         :task="activeTask"
                         :taskToEdit="activeTask"
                         :taskName="activeTask?.name"
@@ -1311,15 +1583,17 @@
                         @create-task="handleCreateTask"
                         @edit-task="handleEditTask"
                         @delete-task="showDeleteConfirm($event)"
+                        @open-group="handleOpenGroup"
                         @save="handleSaveTask"
                         @back="navigate('dashboard', 'backward')"
                         @start-task="handleStartTask"
                         @countdown-finished="navigate('focus', 'forward', activeTask)"
                         @exit="handleFocusExit"
-                        @back-to-dash="navigate('dashboard', 'backward')"
+                        @back-to-dash="handleBackToDashboard"
                         @update-order="handleUpdateTaskOrder"
                         @delete-multiple="handleDeleteMultiple"
                         @archive-multiple="handleArchiveMultiple"
+                        @group-multiple="handleShowGroupModal"
                         @view-archive="navigate('archive', 'forward')"
                         @restore-multiple="handleRestoreMultiple"
                     />
@@ -1331,6 +1605,12 @@
                     @confirm="confirmModalState.onConfirm"
                     @cancel="confirmModalState.visible = false"
                 />
+                
+                <group-name-modal
+                    :visible="groupNameModalState.visible"
+                    @confirm="handleConfirmGroup"
+                    @cancel="groupNameModalState.visible = false"
+                />
             `
         };
 
@@ -1338,11 +1618,13 @@
         const app = createApp(App);
         app.component('splash-screen', SplashScreen);
         app.component('dashboard-screen', DashboardScreen);
+        app.component('group-view-screen', GroupViewScreen);
         app.component('editor-screen', EditorScreen);
         app.component('get-ready-screen', GetReadyScreen);
         app.component('focus-screen', FocusScreen);
         app.component('all-done-screen', AllDoneScreen);
         app.component('archive-screen', ArchiveScreen);
+        app.component('group-name-modal', GroupNameModal);
         app.mount('#app');
 
 
@@ -1352,13 +1634,9 @@
             
             navigator.serviceWorker.register('/sw.js').then(reg => {
                 reg.addEventListener('updatefound', () => {
-                    // 发现一个正在安装的新的 service worker
                     newWorker = reg.installing;
                     newWorker.addEventListener('statechange', () => {
-                        // service worker 的状态改变
                         if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                            // 新的 service worker 已经安装但还未激活
-                            // 这时我们可以提示用户有新版本可用
                             const updateToast = document.getElementById('update-toast');
                             updateToast.classList.add('show');
                         }
