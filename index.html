@@ -393,6 +393,9 @@
                 const onPointerUp = (e) => {
                     // In select mode, a click toggles selection.
                     if (props.mode === 'select') {
+                        // BUG FIX: Prevent the browser from firing a "click" event after the touch ends,
+                        // which would cause a double-toggle on the checkbox on mobile devices.
+                        e.preventDefault();
                         emit('toggle-select', props.task.id);
                     }
                     // In default mode, a click on a group opens it.
