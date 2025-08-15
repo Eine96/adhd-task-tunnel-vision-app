@@ -941,9 +941,8 @@
                 };
 
                 const goToStep = (index) => {
-                    if (index < currentIndex.value) {
-                        currentIndex.value = index;
-                    }
+                    // FIX: Allow jumping to any step, not just previous ones.
+                    currentIndex.value = index;
                 };
                 
                 return { currentIndex, currentSubtask, nextButtonIcon, iconClass, progressBarEl, ripples, isButtonPressed, startPress, endPress, goToStep, pressProgress, fillElement };
@@ -985,9 +984,10 @@
                             <div 
                                 v-for="(subtask, index) in task.subtasks" 
                                 :key="index"
-                                @click="goToStep(index)"
-                                class="h-full rounded-md transition-all duration-500"
-                                :class="[index < currentIndex ? 'bg-emerald-500' : 'bg-slate-200', index < currentIndex ? 'cursor-pointer hover:bg-emerald-600' : '']"
+                                @mousedown.prevent="goToStep(index)"
+                                @touchstart.prevent="goToStep(index)"
+                                class="h-full rounded-md transition-all duration-500 cursor-pointer"
+                                :class="[index < currentIndex ? 'bg-emerald-500' : 'bg-slate-200', 'hover:opacity-80']"
                                 :style="{ flexGrow: index + 1 }"
                             ></div>
                         </div>
