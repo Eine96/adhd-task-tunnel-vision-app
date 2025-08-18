@@ -1,5 +1,5 @@
 // 定义缓存名称，每次更新文件后，建议修改版本号来触发更新
-const CACHE_NAME = 'task-tunnel-cache-v1.6'; 
+const CACHE_NAME = 'task-tunnel-cache-v1.7'; 
 // 定义需要缓存的文件列表，使用相对路径
 const urlsToCache = [
   './',
