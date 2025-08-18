@@ -695,7 +695,8 @@
                         if (!isGroup.value) {
                              subtasks.value = JSON.parse(JSON.stringify(props.taskToEdit.subtasks || [])).map(sub => ({
                                 ...sub,
-                                id: `sub-${nextSubId++}`
+                                id: `sub-${nextSubId++}`,
+                                details: sub.details || '' // NEW: Initialize details
                             }));
                         } else {
                             subtasks.value = [];
@@ -709,6 +710,7 @@
                 onMounted(() => {
                     initialize();
                     if (subtaskListEl.value && !isGroup.value) {
+                        // FIX: Use .value.$el for component refs to get the DOM element for Sortable.js
                         sortable = new Sortable(subtaskListEl.value.$el, {
                             animation: 150,
                             handle: '.drag-handle',
@@ -724,7 +726,8 @@
                 watch(() => props.taskToEdit, initialize, { immediate: true });
 
                 const addSubtask = async () => {
-                    subtasks.value.push({ id: `sub-${nextSubId++}`, text: '' });
+                    // NEW: Add details property to new subtasks
+                    subtasks.value.push({ id: `sub-${nextSubId++}`, text: '', details: '' });
                     await nextTick();
                     const inputs = document.querySelectorAll('.edit-input');
                     const lastInput = inputs[inputs.length - 1];
@@ -749,11 +752,13 @@
                             name: taskName.value.trim(),
                         };
                     } else {
+                        // NEW: Map details property when saving
                         const finalSubtasks = subtasks.value
                             .filter(s => s.text.trim() !== '')
-                            .map(s => ({ text: s.text }));
+                            .map(s => ({ text: s.text.trim(), details: s.details.trim() }));
 
-                        if (finalSubtasks.length === 0) { alert('请至少添加一个步骤'); return; }
+                        // FIX: Removed check that prevented saving tasks with no subtasks.
+                        // if (finalSubtasks.length === 0) { alert('请至少添加一个步骤'); return; }
 
                         savedTask = {
                             id: props.taskToEdit ? props.taskToEdit.id : Date.now(),
@@ -781,10 +786,14 @@
                     
                     <div v-if="!isGroup" class="flex-grow overflow-y-auto bg-slate-50 p-2 rounded-lg">
                         <transition-group name="stagger-list" tag="div" class="space-y-2" ref="subtaskListEl">
-                            <div v-for="(sub, index) in subtasks" :key="sub.id" class="subtask-item flex items-center bg-white py-3 px-2 rounded-md">
-                                <span class="drag-handle text-slate-400 mr-3">☰</span>
-                                <input type="text" v-model="sub.text" class="edit-input flex-grow bg-white p-0 m-0 border-none focus:ring-0 outline-none" placeholder="步骤描述...">
-                                <button @click="removeSubtask(index)" class="delete-subtask-btn text-rose-500 hover:text-rose-600 font-bold px-2 ml-2">×</button>
+                            <!-- MODIFIED: Added textarea for details -->
+                            <div v-for="(sub, index) in subtasks" :key="sub.id" class="subtask-item flex flex-col bg-white p-3 rounded-md shadow-sm">
+                                <div class="flex items-center w-full">
+                                    <span class="drag-handle text-slate-400 mr-3 cursor-grab">☰</span>
+                                    <input type="text" v-model="sub.text" class="edit-input flex-grow bg-white p-0 m-0 border-none focus:ring-0 outline-none" placeholder="步骤描述...">
+                                    <button @click="removeSubtask(index)" class="delete-subtask-btn text-rose-400 hover:text-rose-600 font-bold px-2 ml-2 text-xl">×</button>
+                                </div>
+                                <textarea v-model="sub.details" rows="2" class="w-full mt-2 p-2 text-sm bg-slate-100 border border-slate-200 rounded-md focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 resize-none" placeholder="添加步骤详情（可选）"></textarea>
                             </div>
                         </transition-group>
                         <div @click="addSubtask" class="mt-2 flex items-center justify-center bg-transparent p-2 rounded-md border-2 border-dashed border-slate-300 hover:bg-slate-100 cursor-pointer">
@@ -955,9 +964,13 @@
                     <header class="flex justify-start">
                          <button @click="$emit('exit', false)" class="text-slate-400 hover:text-slate-600">&larr; 退出</button>
                     </header>
-                    <div class="flex-grow flex items-center justify-center overflow-hidden relative [transform-style:preserve-3d]">
+                    <!-- MODIFIED: Added container for text and details, and details paragraph -->
+                    <div class="flex-grow flex flex-col items-center justify-center overflow-hidden relative [transform-style:preserve-3d]">
                          <transition name="flip" mode="out-in">
-                            <p :key="currentIndex" class="text-4xl font-bold text-center text-slate-800 break-words">{{ currentSubtask.text }}</p>
+                            <div :key="currentIndex" class="text-center p-4">
+                                <p class="text-4xl font-bold text-slate-800 break-words">{{ currentSubtask.text }}</p>
+                                <p v-if="currentSubtask.details" class="mt-4 text-lg text-slate-500 max-w-md mx-auto whitespace-pre-wrap">{{ currentSubtask.details }}</p>
+                            </div>
                          </transition>
                     </div>
                     <div class="w-full">
@@ -1229,7 +1242,7 @@
                             <input type="checkbox" :checked="selectedTasks.has(task.id)" class="w-5 h-5 rounded-full text-indigo-600 focus:ring-indigo-500 mr-4">
                             <div>
                                 <span class="font-semibold text-slate-700">{{ task.name }}</span>
-                                <p class="text-xs text-slate-400">{{ task.subtasks.length }} 个步骤</p>
+                                <p class="text-xs text-slate-400">{{ task.subtasks?.length || 0 }} 个步骤</p>
                             </div>
                         </div>
                     </div>
@@ -1448,6 +1461,11 @@
                 const handleStartTask = (taskId) => {
                     const task = findItem(tasks.value, taskId);
                     if (task && task.type === 'task') {
+                        // FIX: Prevent starting a task with no subtasks
+                        if (!task.subtasks || task.subtasks.length === 0) {
+                            alert('这个任务还没有步骤，请先编辑任务并添加步骤。');
+                            return;
+                        }
                         navigate('get-ready', 'forward', task);
                     }
                 };
